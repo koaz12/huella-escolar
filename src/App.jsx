@@ -2,8 +2,8 @@
 import { useState, useEffect } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Toaster } from 'react-hot-toast'; // <--- El sistema de avisos
-import { Camera, Users, Image as ImageIcon, LogOut } from 'lucide-react'; // Iconos bonitos
+import { Toaster } from 'react-hot-toast'; 
+import { Camera, Users, Image as ImageIcon, LogOut } from 'lucide-react'; 
 
 import { Login } from './components/Login';
 import { CaptureForm } from './components/CaptureForm';
@@ -24,106 +24,97 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  const handleLogout = () => {
-    if(confirm("¿Cerrar sesión?")) signOut(auth);
-  };
+  const handleLogout = () => { if(confirm("¿Cerrar sesión?")) signOut(auth); };
 
-  if (loading) return <div style={{display:'flex', justifyContent:'center', alignItems:'center', height:'100vh'}}>Cargando...</div>;
-
+  if (loading) return <div style={{height:'100dvh', display:'grid', placeItems:'center'}}>Cargando...</div>;
   if (!user) return <Login />;
 
   return (
-    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' }}>
+    // CONTENEDOR PRINCIPAL: Ocupa exactamente el 100% de la pantalla del celular
+    <div style={{ 
+      height: '100dvh', // 'dvh' se adapta a las barras del navegador móvil
+      display: 'flex', 
+      flexDirection: 'column',
+      overflow: 'hidden', // Evita scroll en el contenedor principal
+      backgroundColor: '#f4f6f8'
+    }}>
       
-      {/* --- 1. SISTEMA DE NOTIFICACIONES --- */}
-      <Toaster position="top-center" reverseOrder={false} />
+      <Toaster position="top-center" />
 
-      {/* --- 2. BARRA SUPERIOR (Header) --- */}
+      {/* --- 1. HEADER (Fijo) --- */}
       <div style={{ 
+        flexShrink: 0, // No se encoge
         backgroundColor: 'white', 
-        padding: '10px 15px', 
-        position: 'sticky', 
-        top: 0, 
-        zIndex: 100,
+        padding: '12px 15px', 
         display: 'flex', 
         justifyContent: 'space-between',
         alignItems: 'center',
-        borderBottom: '1px solid #eee',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        borderBottom: '1px solid #e1e4e8',
+        zIndex: 10
       }}>
-        <h2 style={{margin: 0, fontSize: '1.2rem', color: '#333'}}>🏃‍♂️ Huella Escolar</h2>
-        <button onClick={handleLogout} style={{background:'transparent', border:'none', color:'#666'}}>
-          <LogOut size={20} />
+        <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
+          🏃‍♂️ Huella Escolar
+        </h2>
+        <button onClick={handleLogout} style={{background:'transparent', border:'none', padding:'5px'}}>
+          <LogOut size={20} color="#666" />
         </button>
       </div>
 
-      {/* --- 3. CONTENIDO PRINCIPAL (Con espacio abajo para el menú) --- */}
-      <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px 10px 80px 10px' }}>
-        <SyncStatus /> 
-        
-        {/* Efecto de transición simple */}
-        <div style={{animation: 'fadeIn 0.3s'}}>
-          {view === 'capture' && <CaptureForm />}
-          {view === 'students' && <StudentForm />}
-          {view === 'gallery' && <EvidenceList />}
+      {/* --- 2. ÁREA DE CONTENIDO (Scrollable) --- */}
+      <div style={{ 
+        flex: 1, // Toma todo el espacio disponible
+        overflowY: 'auto', // Solo esto hace scroll
+        padding: '15px',
+        paddingBottom: '20px' // Un poco de aire al final
+      }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <SyncStatus /> 
+          {/* Animación suave al cambiar de pestaña */}
+          <div key={view} style={{ animation: 'fadeIn 0.2s ease-in' }}>
+            {view === 'capture' && <CaptureForm />}
+            {view === 'students' && <StudentForm />}
+            {view === 'gallery' && <EvidenceList />}
+          </div>
         </div>
       </div>
 
-      {/* --- 4. BARRA DE NAVEGACIÓN INFERIOR (Bottom Nav) --- */}
+      {/* --- 3. BARRA INFERIOR (Fija) --- */}
       <div style={{ 
-        position: 'fixed', 
-        bottom: 0, 
-        left: 0, 
-        width: '100%', 
+        flexShrink: 0,
         backgroundColor: 'white', 
-        borderTop: '1px solid #eee',
+        borderTop: '1px solid #e1e4e8',
         display: 'flex', 
         justifyContent: 'space-around',
-        padding: '10px 0',
-        zIndex: 1000,
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.05)'
+        padding: '8px 0',
+        paddingBottom: 'safe-area-inset-bottom', // Para iPhone X+
+        zIndex: 100
       }}>
-          <NavButton 
-            icon={<Camera size={24} />} 
-            label="Captura" 
-            active={view==='capture'} 
-            onClick={() => setView('capture')} 
-          />
-          <NavButton 
-            icon={<ImageIcon size={24} />} 
-            label="Galería" 
-            active={view==='gallery'} 
-            onClick={() => setView('gallery')} 
-          />
-          <NavButton 
-            icon={<Users size={24} />} 
-            label="Alumnos" 
-            active={view==='students'} 
-            onClick={() => setView('students')} 
-          />
+          <NavButton icon={<Camera size={24} />} label="Captura" active={view==='capture'} onClick={() => setView('capture')} />
+          <NavButton icon={<ImageIcon size={24} />} label="Galería" active={view==='gallery'} onClick={() => setView('gallery')} />
+          <NavButton icon={<Users size={24} />} label="Alumnos" active={view==='students'} onClick={() => setView('students')} />
       </div>
+
+      {/* Estilos globales para animación */}
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
     </div>
   );
 }
 
-// Componente de Botón Inferior
 function NavButton({ icon, label, active, onClick }) {
   return (
     <button 
       onClick={onClick}
       style={{ 
-        background: 'none', 
-        border: 'none', 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center',
-        color: active ? '#007bff' : '#999',
-        cursor: 'pointer',
-        flex: 1
+        background: 'none', border: 'none', 
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        color: active ? '#007bff' : '#94a3b8',
+        cursor: 'pointer', flex: 1, padding: '5px'
       }}
     >
       {icon}
-      <span style={{fontSize: '10px', marginTop: '4px', fontWeight: active ? 'bold' : 'normal'}}>{label}</span>
+      <span style={{fontSize: '11px', marginTop: '3px', fontWeight: active ? '600' : '400'}}>{label}</span>
     </button>
   );
 }

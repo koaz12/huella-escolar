@@ -124,55 +124,53 @@ export function StudentForm() {
     setFormData({ name: '', studentId: '', level: 'Primaria', shift: 'Matutina', grade: '4to', section: 'A', listNumber: '', birthDate: '' });
   };
 
+  // Dentro de StudentForm.jsx...
+
   return (
-    <div style={{ padding: '15px', background: 'white', borderRadius: '8px' }}>
-      <h3>{editingId ? '✏️ Editando Alumno' : '🎓 Nuevo Alumno'}</h3>
+    <div style={{ padding: '15px', border: '1px solid #eee', borderRadius: '12px', background: 'white', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
       
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '30px' }}>
-        {/* ... (MISMOS CAMPOS DE ANTES) ... */}
-        <input name="name" placeholder="Nombre Completo" value={formData.name} onChange={handleChange} required style={{ padding: '10px' }} />
+      {/* ... Sección Excel ... */}
+      
+      <h3 style={{marginTop: '20px', color: '#333'}}>{editingId ? '✏️ Editando' : '🎓 Nuevo Alumno'}</h3>
+      
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <input name="birthDate" type="date" value={formData.birthDate} onChange={handleChange} style={{ flex: 1, padding: '10px' }} />
-          <input name="studentId" placeholder="Matrícula" value={formData.studentId} onChange={handleChange} style={{ flex: 1, padding: '10px' }} />
+        <input name="name" placeholder="Nombre Completo" value={formData.name} onChange={handleChange} required 
+          style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px' }} />
+        
+        {/* FILA FLEXIBLE: Se adapta al ancho */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <input name="birthDate" type="date" value={formData.birthDate} onChange={handleChange} 
+            style={{ flex: '1 1 140px', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }} />
+          <input name="studentId" placeholder="Matrícula" value={formData.studentId} onChange={handleChange} 
+            style={{ flex: '1 1 100px', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }} />
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-           <select name="grade" value={formData.grade} onChange={handleChange} style={{ flex: 1, padding: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+           <select name="grade" value={formData.grade} onChange={handleChange} 
+             style={{ flex: '1 1 80px', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', background:'white' }}>
              <option>1ro</option><option>2do</option><option>3ro</option><option>4to</option><option>5to</option><option>6to</option>
            </select>
-           <select name="section" value={formData.section} onChange={handleChange} style={{ flex: 1, padding: '10px' }}>
+           <select name="section" value={formData.section} onChange={handleChange} 
+             style={{ flex: '1 1 80px', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', background:'white' }}>
              {['A','B','C','D','E'].map(l => <option key={l} value={l}>{l}</option>)}
            </select>
-           <input name="listNumber" type="number" placeholder="#" value={formData.listNumber} onChange={handleChange} style={{ width: '50px', padding: '10px' }} />
+           <input name="listNumber" type="number" placeholder="#" value={formData.listNumber} onChange={handleChange} 
+             style={{ flex: '1 1 60px', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }} />
         </div>
 
-        <button type="submit" disabled={loading} style={{ padding: '15px', backgroundColor: editingId ? '#ffc107' : '#28a745', color: editingId ? 'black' : 'white', border: 'none', borderRadius: '5px', fontWeight:'bold' }}>
-          {loading ? 'Guardando...' : (editingId ? '🔄 Actualizar Alumno' : '💾 Guardar Alumno')}
+        {/* Botones... */}
+        <button type="submit" disabled={loading} 
+          style={{ padding: '14px', backgroundColor: editingId ? '#f59e0b' : '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight:'bold', fontSize:'16px' }}>
+          {loading ? 'Guardando...' : (editingId ? 'Actualizar' : 'Guardar')}
         </button>
         
         {editingId && (
-          <button type="button" onClick={handleCancelEdit} style={{ padding: '10px', background: '#ccc', border: 'none', borderRadius: '5px' }}>Cancelar Edición</button>
+          <button type="button" onClick={handleCancelEdit} style={{ padding: '10px', background: '#e5e7eb', border: 'none', borderRadius: '8px' }}>Cancelar</button>
         )}
       </form>
 
-      <hr />
-
-      {/* LISTA DE GESTIÓN */}
-      <h4>📋 Mis Alumnos Registrados ({myStudents.length})</h4>
-      <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-        {myStudents.map(s => (
-          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', borderBottom: '1px solid #eee' }}>
-            <div>
-              <strong>{s.name}</strong> <small>({s.grade} {s.section})</small>
-            </div>
-            <div style={{display:'flex', gap:'10px'}}>
-              <button onClick={() => handleEdit(s)} style={{background: 'none', border:'none', cursor:'pointer'}}>✏️</button>
-              <button onClick={() => handleDelete(s.id)} style={{background: 'none', border:'none', cursor:'pointer'}}>🗑️</button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* ... Lista de alumnos ... */}
     </div>
   );
 }
