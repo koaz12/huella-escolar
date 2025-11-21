@@ -5,7 +5,7 @@ import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/f
 import { ref, deleteObject } from 'firebase/storage';
 import { Image as ImageIcon, Trash2, ChevronLeft, ChevronRight, Search, LayoutGrid, List as ListIcon, X, PlayCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Skeleton } from './Skeleton';
+import { Skeleton } from './Skeleton'; // <--- 1. IMPORTAMOS EL SKELETON
 
 export function EvidenceList() {
   const [evidences, setEvidences] = useState([]);
@@ -19,7 +19,6 @@ export function EvidenceList() {
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // SOLO MIS EVIDENCIAS
         const q = query(
           collection(db, "evidence"), 
           where("teacherId", "==", user.uid)
@@ -27,7 +26,6 @@ export function EvidenceList() {
 
         const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          // Ordenar por fecha en JS
           docs.sort((a, b) => {
             const dateA = a.date?.toDate ? a.date.toDate() : new Date(0);
             const dateB = b.date?.toDate ? b.date.toDate() : new Date(0);
@@ -65,18 +63,21 @@ export function EvidenceList() {
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, viewMode]);
 
+  // --- 2. PANTALLA DE CARGA CON SKELETONS ---
   if (loading) {
     return (
       <div style={{ paddingBottom: '20px' }}>
-        {/* Skeleton del Buscador */}
+        {/* Simular barra de búsqueda */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-          <Skeleton height="45px" />
-          <Skeleton width="80px" height="45px" />
+            <div style={{flex: 1, position: 'relative'}}>
+                <Skeleton height="42px" />
+            </div>
+            <Skeleton width="80px" height="42px" />
         </div>
         
-        {/* Skeleton de la Grilla (Simulamos 9 fotos) */}
+        {/* Simular cuadrícula de fotos */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-          {[...Array(9)].map((_, i) => (
+          {[...Array(12)].map((_, i) => (
             <div key={i} style={{ aspectRatio: '1/1' }}>
               <Skeleton height="100%" style={{borderRadius: 0}} />
             </div>
@@ -86,6 +87,7 @@ export function EvidenceList() {
     );
   }
 
+  // --- CONTENIDO REAL ---
   return (
     <div style={{ paddingBottom: '20px' }}>
       <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
@@ -104,8 +106,15 @@ export function EvidenceList() {
       {viewMode === 'grid' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
           {visibleEvidences.map((item) => (
-            <div key={item.id} onClick={() => setSelectedItem(item)} style={{ aspectRatio: '1/1', background: '#f1f5f9', overflow: 'hidden' }}>
-              {item.fileUrl.includes('.mp4') ? <video src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            <div key={item.id} onClick={() => setSelectedItem(item)} style={{ aspectRatio: '1/1', background: '#f1f5f9', overflow: 'hidden', position:'relative' }}>
+              {item.fileUrl.includes('.mp4') || item.fileUrl.includes('video') ? (
+                  <>
+                    <video src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <PlayCircle size={24} color="white" style={{position:'absolute', top:'50%', left:'50%', transform:'translate(-50%, -50%)'}} />
+                  </>
+              ) : (
+                  <img src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              )}
             </div>
           ))}
         </div>
@@ -117,7 +126,7 @@ export function EvidenceList() {
             <div key={item.id} style={{ border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', background: 'white' }}>
               <div style={{ padding: '10px', borderBottom: '1px solid #f0f0f0', display:'flex', justifyContent:'space-between' }}>
                 <strong>{item.activityName}</strong>
-                <button onClick={() => handleDelete(item)}><Trash2 size={16} color="red"/></button>
+                <button onClick={() => handleDelete(item)} style={{border:'none', background:'none'}}><Trash2 size={16} color="red"/></button>
               </div>
               <img src={item.fileUrl} style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', background:'black' }} />
             </div>
@@ -129,7 +138,11 @@ export function EvidenceList() {
       {selectedItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 2000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <button onClick={() => setSelectedItem(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.2)', padding: '10px', borderRadius:'50%', border:'none', color:'white' }}><X size={24}/></button>
-          {selectedItem.fileUrl.includes('.mp4') ? <video src={selectedItem.fileUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '70%' }} /> : <img src={selectedItem.fileUrl} style={{ maxWidth: '100%', maxHeight: '70%', objectFit: 'contain' }} />}
+          {selectedItem.fileUrl.includes('.mp4') || selectedItem.fileUrl.includes('video') ? (
+              <video src={selectedItem.fileUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '70%' }} />
+          ) : (
+              <img src={selectedItem.fileUrl} style={{ maxWidth: '100%', maxHeight: '70%', objectFit: 'contain' }} />
+          )}
           <div style={{color:'white', marginTop:'20px', textAlign:'center'}}><h3>{selectedItem.activityName}</h3></div>
         </div>
       )}
