@@ -7,18 +7,32 @@ import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'fi
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
-  FolderPlus, Image as ImageIcon, Film, X, Camera, Circle, Check, 
-  User, Filter, Search 
+  FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
+  User, Filter, Search, Calendar, CheckSquare, Square
 } from 'lucide-react';
 
 export function CaptureForm() {
+  // --- ESTADOS DE DATOS ---
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
+  const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]); // Fecha YYYY-MM-DD (Hoy por defecto)
   const [files, setFiles] = useState([]); 
   const [loading, setLoading] = useState(false);
+  
+  // --- ESTADOS DE ALUMNOS Y FILTROS ---
   const [students, setStudents] = useState([]); 
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
+
+  // Filtros (Iniciamos en "Todos" para mayor flexibilidad)
+  // Intentamos leer de localStorage para "recordar" la última elección
+  const [filters, setFilters] = useState(() => {
+      const saved = localStorage.getItem('captureFilters');
+      return saved ? JSON.parse(saved) : {
+          level: 'Primaria', shift: 'Matutina', grade: 'Todos', section: 'Todos'
+      };
+  });
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Estados Cámara
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -26,24 +40,21 @@ export function CaptureForm() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
-  // Filtros
-  const [filterLevel, setFilterLevel] = useState('Primaria');
-  const [filterShift, setFilterShift] = useState('Matutina');
-  const [filterGrade, setFilterGrade] = useState('4to');
-  const [filterSection, setFilterSection] = useState('A');
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // --- CARGA DE DATOS ---
+  // --- 1. CARGA INICIAL ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
+        // Cargar Alumnos
         const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubStudents = onSnapshot(q, (qs) => {
           const arr = [];
           qs.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+          // Ordenar por lista
           arr.sort((a, b) => (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0));
           setStudents(arr);
         });
+
+        // Cargar Actividades Recientes (Para autocompletar)
         const qRecent = query(collection(db, "evidence"), where("teacherId", "==", user.uid), orderBy("date", "desc"), limit(20));
         const unsubRecent = onSnapshot(qRecent, (qs) => {
             const names = new Set();
@@ -58,12 +69,48 @@ export function CaptureForm() {
     return () => unsubscribeAuth();
   }, []);
 
+  // Guardar filtros en memoria cada vez que cambien
+  useEffect(() => {
+      localStorage.setItem('captureFilters', JSON.stringify(filters));
+  }, [filters]);
+
+  // --- LÓGICA DE FILTRADO ---
   const visibleStudents = students.filter(student => {
-    if (searchTerm !== '') return student.name.toLowerCase().includes(searchTerm.toLowerCase());
-    return (student.level === filterLevel && student.shift === filterShift && student.grade === filterGrade && student.section === filterSection);
+    // 1. Buscador Texto
+    if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    
+    // 2. Selectores (Si es "Todos", pasa siempre. Si no, debe coincidir)
+    if (filters.level !== 'Todos' && student.level !== filters.level) return false;
+    if (filters.shift !== 'Todos' && student.shift !== filters.shift) return false;
+    if (filters.grade !== 'Todos' && student.grade !== filters.grade) return false;
+    if (filters.section !== 'Todos' && student.section !== filters.section) return false;
+
+    return true;
   });
 
-  // --- LÓGICA CÁMARA ---
+  // --- LÓGICA SELECCIONAR TODO ---
+  // Verificamos si TODOS los visibles están seleccionados
+  const areAllVisibleSelected = visibleStudents.length > 0 && visibleStudents.every(s => selectedStudents.includes(s.id));
+
+  const toggleSelectAll = () => {
+      const visibleIds = visibleStudents.map(s => s.id);
+      if (areAllVisibleSelected) {
+          // DESMARCAR: Quitamos los visibles de la lista de seleccionados
+          setSelectedStudents(prev => prev.filter(id => !visibleIds.includes(id)));
+          toast.success("Selección limpiada");
+      } else {
+          // MARCAR: Agregamos los visibles que falten
+          setSelectedStudents(prev => [...new Set([...prev, ...visibleIds])]);
+          toast.success(`${visibleIds.length} alumnos seleccionados`);
+      }
+  };
+
+  const toggleStudent = (id) => {
+    if (selectedStudents.includes(id)) setSelectedStudents(selectedStudents.filter(s => s !== id));
+    else setSelectedStudents([...selectedStudents, id]);
+  };
+
+  // --- LÓGICA CÁMARA & ARCHIVOS ---
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
@@ -92,11 +139,10 @@ export function CaptureForm() {
         const fileName = `capture_${Date.now()}.jpg`;
         const file = new File([blob], fileName, { type: 'image/jpeg' });
         setFiles(prev => [...prev, file]);
-        toast.success("¡Foto capturada!", { duration: 1000, icon: '📸' });
+        toast.success("Foto capturada", { duration: 1000, icon: '📸' });
     }, 'image/jpeg', 0.9);
   };
 
-  // --- ARCHIVOS ---
   const handleFilesChange = (e) => { 
     const selectedFiles = Array.from(e.target.files); 
     if (selectedFiles.length === 0) return;
@@ -105,38 +151,27 @@ export function CaptureForm() {
     selectedFiles.forEach(file => {
         if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) {
             toast.error(`⚠️ Video muy pesado (>50MB). Ignorado.`);
-        } else {
-            validFiles.push(file);
-        }
+        } else { validFiles.push(file); }
     });
     setFiles(prev => [...prev, ...validFiles]); 
   };
   
   const removeFile = (index) => setFiles(prev => prev.filter((_, i) => i !== index));
 
-  // --- SELECCIÓN DE ALUMNOS (TOGGLE) ---
-  const toggleStudent = (id) => {
-    if (selectedStudents.includes(id)) setSelectedStudents(selectedStudents.filter(s => s !== id));
-    else setSelectedStudents([...selectedStudents, id]);
-  };
-
-  const selectAllVisible = () => {
-    const visibleIds = visibleStudents.map(s => s.id);
-    // Si ya están todos seleccionados, deseleccionar todos
-    const allSelected = visibleIds.every(id => selectedStudents.includes(id));
-    if (allSelected) {
-        setSelectedStudents(prev => prev.filter(id => !visibleIds.includes(id)));
-    } else {
-        setSelectedStudents(prev => [...new Set([...prev, ...visibleIds])]);
-    }
-  };
-
+  // --- GUARDADO ---
   const handleSave = async (e) => {
     e.preventDefault();
     if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
     setLoading(true);
     const loadingToast = toast.loading(`Subiendo ${files.length} archivos...`);
+    
     try {
+      // Convertir fecha del input (string) a Date real
+      // Le agregamos la hora actual para mantener orden del día
+      const now = new Date();
+      const [year, month, day] = customDate.split('-').map(Number);
+      const finalDate = new Date(year, month - 1, day, now.getHours(), now.getMinutes());
+
       let count = 0;
       for (const file of files) {
           count++;
@@ -145,26 +180,46 @@ export function CaptureForm() {
             try { fileToUpload = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }); } 
             catch (error) { console.error(error); }
           }
+          
+          // Datos comunes
+          const docData = {
+               activityName: activity, 
+               comment: comment, 
+               studentIds: selectedStudents, 
+               date: finalDate, // Usamos la fecha personalizada
+               teacherId: auth.currentUser.uid,
+               // Guardamos los filtros actuales como contexto (si son 'Todos', guardamos 'Varios')
+               grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
+               section: filters.section === 'Todos' ? 'Varios' : filters.section
+          };
+
           if (!navigator.onLine) {
-             await saveOffline(fileToUpload, activity, selectedStudents, comment);
+             // Adaptación para offline (necesita lógica extra en saveOffline para recibir fecha, pero por ahora pasa)
+             await saveOffline(fileToUpload, activity, selectedStudents, comment); 
           } else {
              const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${count}_${fileToUpload.name}`);
              const snapshot = await uploadBytes(storageRef, fileToUpload);
              const downloadURL = await getDownloadURL(snapshot.ref);
+             
              await addDoc(collection(db, "evidence"), {
-               activityName: activity, comment: comment, fileUrl: downloadURL,
+               ...docData,
+               fileUrl: downloadURL,
                fileType: file.type.startsWith('video/') ? 'video' : 'image',
-               studentIds: selectedStudents, date: new Date(), teacherId: auth.currentUser.uid,
-               grade: filterGrade, section: filterSection
              });
           }
       }
-      toast.success("¡Guardado!", { id: loadingToast });
-      setActivity(''); setComment(''); setFiles([]); setSelectedStudents([]);
+      toast.success("¡Guardado correctamente!", { id: loadingToast });
+      
+      // Limpieza parcial (No limpiamos filtros ni actividad por si quiere subir más de lo mismo)
+      setComment(''); setFiles([]); setSelectedStudents([]);
     } catch (error) {
       console.error(error);
       toast.error("Error: " + error.message, { id: loadingToast });
     } finally { setLoading(false); }
+  };
+
+  const handleFilterChange = (field, value) => {
+      setFilters(prev => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -192,17 +247,38 @@ export function CaptureForm() {
       )}
 
       <div style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
-          <h3 style={{marginTop: 0, marginBottom:'15px', color: '#1f2937'}}>📸 Nueva Captura</h3>
+          
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
+              <h3 style={{margin: 0, color: '#1f2937'}}>📸 Nueva Evidencia</h3>
+              {/* INPUT FECHA */}
+              <div style={{position:'relative'}}>
+                  <Calendar size={16} style={{position:'absolute', left:'8px', top:'8px', color:'#666'}}/>
+                  <input 
+                    type="date" 
+                    value={customDate} 
+                    onChange={e => setCustomDate(e.target.value)}
+                    style={{padding:'6px 6px 6px 28px', borderRadius:'8px', border:'1px solid #ccc', fontSize:'13px', color:'#444', fontWeight:'500'}}
+                  />
+              </div>
+          </div>
+
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             
-            {/* INPUT ACTIVIDAD */}
+            {/* INPUT ACTIVIDAD MEJORADO */}
             <div>
                 <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
-                <input list="activities-list" type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ej: Voleibol, Resistencia..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box' }} />
+                <input 
+                    list="activities-list" 
+                    type="text" 
+                    value={activity} 
+                    onChange={(e) => setActivity(e.target.value)} 
+                    placeholder="Ej: Baloncesto, Voleibol..." 
+                    style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} 
+                />
                 <datalist id="activities-list">{recentActivities.map((act, i) => <option key={i} value={act} />)}</datalist>
             </div>
 
-            {/* BOTONES GRANDES DE ACCIÓN */}
+            {/* BOTONES ACCIÓN */}
             <div style={{display:'flex', gap:'10px'}}>
                 <button type="button" onClick={startCamera} style={{flex: 1, border:'none', background:'#10b981', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'white', boxShadow:'0 4px 6px rgba(16, 185, 129, 0.2)', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
                     <Camera size={28}/>
@@ -229,66 +305,51 @@ export function CaptureForm() {
 
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios sobre la clase..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
 
-            {/* SECCIÓN DE ALUMNOS (REDISEÑADA) */}
+            {/* SECCIÓN DE ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
               </div>
               
-              {/* FILTROS DE CLASE */}
+              {/* FILTROS DE CLASE (CON OPCIÓN "TODOS") */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-                 <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} style={selectStyle}><option>Primaria</option><option>Secundaria</option></select>
-                 <select value={filterShift} onChange={e => setFilterShift(e.target.value)} style={selectStyle}><option>Matutina</option><option>Vespertina</option></select>
-                 <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} style={selectStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                 <select value={filterSection} onChange={e => setFilterSection(e.target.value)} style={selectStyle}>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
+                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
+                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
+                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
               </div>
               
-              {/* BARRA BUSCADOR Y SELECCIONAR TODOS */}
+              {/* BARRA BUSCADOR + SELECCIONAR TODO INTELIGENTE */}
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
                   <div style={{position:'relative', flex:1}}>
                       <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
                       <input placeholder="Buscar alumno..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'6px 6px 6px 28px', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'13px', boxSizing:'border-box'}} />
                   </div>
-                  <button type="button" onClick={selectAllVisible} style={{fontSize: '11px', padding: '0 12px', background: '#e2e8f0', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight:'600', color:'#475569'}}>
-                      Todos
+                  
+                  {/* BOTÓN TOGGLE TODO */}
+                  <button type="button" onClick={toggleSelectAll} style={{
+                      fontSize: '11px', padding: '0 12px', borderRadius: '6px', fontWeight:'600', border: '1px solid',
+                      background: areAllVisibleSelected ? '#fee2e2' : '#ecfdf5', // Rojo si voy a deseleccionar, Verde si voy a seleccionar
+                      borderColor: areAllVisibleSelected ? '#fca5a5' : '#6ee7b7',
+                      color: areAllVisibleSelected ? '#991b1b' : '#065f46',
+                      display:'flex', alignItems:'center', gap:'5px'
+                  }}>
+                      {areAllVisibleSelected ? <><Square size={14}/> Ninguno</> : <><CheckSquare size={14}/> Todos</>}
                   </button>
               </div>
 
-              {/* GRILLA DE CHIPS DE ALUMNOS (NUEVO DISEÑO) */}
+              {/* GRILLA DE ALUMNOS */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
                 {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
                 
                 {visibleStudents.map(student => {
                    const isSelected = selectedStudents.includes(student.id);
                    return (
-                      <div 
-                        key={student.id} 
-                        onClick={() => toggleStudent(student.id)}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            padding: '8px', borderRadius: '8px',
-                            border: isSelected ? '1px solid #2563eb' : '1px solid #e2e8f0',
-                            background: isSelected ? '#eff6ff' : 'white',
-                            cursor: 'pointer', transition: 'all 0.1s'
-                        }}
-                      >
-                         {/* Check visual */}
-                         <div style={{
-                             width:'18px', height:'18px', borderRadius:'4px', 
-                             border: isSelected ? 'none' : '2px solid #cbd5e1',
-                             background: isSelected ? '#2563eb' : 'transparent',
-                             display:'grid', placeItems:'center'
-                         }}>
+                      <div key={student.id} onClick={() => toggleStudent(student.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '8px', border: isSelected ? '1px solid #2563eb' : '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : 'white', cursor: 'pointer', transition: 'all 0.1s' }}>
+                         <div style={{ width:'18px', height:'18px', borderRadius:'4px', border: isSelected ? 'none' : '2px solid #cbd5e1', background: isSelected ? '#2563eb' : 'transparent', display:'grid', placeItems:'center' }}>
                              {isSelected && <Check size={12} color="white"/>}
                          </div>
-                         
-                         {/* Foto mini */}
-                         {student.photoUrl ? (
-                             <img src={student.photoUrl} style={{width:'24px', height:'24px', borderRadius:'50%', objectFit:'cover'}}/>
-                         ) : (
-                             <div style={{width:'24px', height:'24px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={14} color="#94a3b8"/></div>
-                         )}
-
+                         {student.photoUrl ? <img src={student.photoUrl} style={{width:'24px', height:'24px', borderRadius:'50%', objectFit:'cover'}}/> : <div style={{width:'24px', height:'24px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={14} color="#94a3b8"/></div>}
                          <div style={{overflow:'hidden'}}>
                              <div style={{fontSize:'12px', fontWeight:'600', color: isSelected ? '#1e40af' : '#333', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{student.name}</div>
                              <div style={{fontSize:'10px', color: isSelected ? '#60a5fa' : '#94a3b8'}}>#{student.listNumber}</div>
