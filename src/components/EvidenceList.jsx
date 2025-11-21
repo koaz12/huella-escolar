@@ -6,7 +6,7 @@ import { ref, deleteObject } from 'firebase/storage';
 import { 
   Trash2, Search, X, PlayCircle, Folder, ArrowLeft, 
   Edit2, Filter, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
-  Film 
+  Film, Smile, Meh, Frown, Activity
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Skeleton } from './Skeleton';
@@ -20,9 +20,10 @@ export function EvidenceList() {
   const [studentsList, setStudentsList] = useState([]); 
   const [loading, setLoading] = useState(true);
 
-  // --- ESTADOS DE VISTA Y FILTROS PRINCIPALES ---
+  // --- ESTADOS DE VISTA Y FILTROS ---
   const [filterActivity, setFilterActivity] = useState(null);
   const [filterStudent, setFilterStudent] = useState(''); 
+  const [filterPerformance, setFilterPerformance] = useState('Todos'); // <--- NUEVO FILTRO
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(false);
 
@@ -31,21 +32,19 @@ export function EvidenceList() {
   const [isEditing, setIsEditing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [] });
+  // Datos edición (Incluye performance)
+  const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
 
-  // --- FILTROS PARA EL MODAL DE EDICIÓN ---
+  // Filtros Modal
   const [modalFilters, setModalFilters] = useState({
-      grade: 'Todos',
-      section: 'Todos',
-      level: 'Todos',
-      shift: 'Todos'
+      grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos'
   });
 
   // 1. CARGA INICIAL
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // A) Cargar Evidencias
+        // A) Evidencias
         const qEv = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
         const unsubEv = onSnapshot(qEv, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -58,7 +57,7 @@ export function EvidenceList() {
           setLoading(false);
         });
 
-        // B) Cargar Alumnos
+        // B) Alumnos
         const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubStu = onSnapshot(qStu, (qs) => {
            const map = {};
@@ -67,18 +66,14 @@ export function EvidenceList() {
                const data = d.data();
                map[d.id] = data.name; 
                list.push({ 
-                   id: d.id, 
-                   name: data.name,
-                   grade: data.grade || '',
-                   section: data.section || '',
-                   level: data.level || '',
-                   shift: data.shift || ''
+                   id: d.id, name: data.name,
+                   grade: data.grade || '', section: data.section || '',
+                   level: data.level || '', shift: data.shift || ''
                });
            });
            setStudentsMap(map);
            setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
         });
-
         return () => { unsubEv(); unsubStu(); };
       }
     });
@@ -103,12 +98,16 @@ export function EvidenceList() {
       const matchesText = item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesActivity = filterActivity ? item.activityName === filterActivity : true;
       const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
-      return matchesText && matchesActivity && matchesStudent;
+      // Filtro Semáforo
+      const matchesPerformance = filterPerformance === 'Todos' || item.performance === filterPerformance;
+      
+      return matchesText && matchesActivity && matchesStudent && matchesPerformance;
     });
   };
   const filteredItems = getFilteredEvidences();
+  
   const folders = {};
-  if (!filterStudent) {
+  if (!filterStudent && filterPerformance === 'Todos') { // Solo mostrar carpetas si no hay filtros específicos
       filteredItems.forEach(item => {
         const name = item.activityName || "Sin Nombre";
         if (!folders[name]) folders[name] = [];
@@ -116,7 +115,6 @@ export function EvidenceList() {
       });
   }
 
-  // --- FILTRADO EN MODAL ---
   const getStudentsForEdit = () => {
       return studentsList.filter(s => {
           const matchGrade = modalFilters.grade === 'Todos' || s.grade === modalFilters.grade;
@@ -154,7 +152,8 @@ export function EvidenceList() {
         await updateDoc(doc(db, "evidence", inspectorItem.id), {
             activityName: editData.activityName,
             comment: editData.comment,
-            studentIds: editData.studentIds
+            studentIds: editData.studentIds,
+            performance: editData.performance // Guardamos el semáforo
         });
         setInspectorItem(prev => ({...prev, ...editData}));
         setIsEditing(false);
@@ -162,7 +161,7 @@ export function EvidenceList() {
     } catch (e) { toast.error("Error al guardar", {id: toastId}); }
   };
 
-  const downloadFolderZip = async () => {
+  const downloadFolderZip = async () => { /* (Código ZIP igual que antes) */
     if (filteredItems.length === 0) return;
     setIsDownloading(true);
     const toastId = toast.loading(`Empaquetando ${filteredItems.length} archivos...`);
@@ -186,6 +185,25 @@ export function EvidenceList() {
     } finally { setIsDownloading(false); }
   };
 
+  // Helper para iconos de semáforo
+  const getPerformanceIcon = (perf) => {
+      switch(perf) {
+          case 'logrado': return <Smile size={16} color="#10b981" fill="#ecfdf5"/>;
+          case 'proceso': return <Meh size={16} color="#f59e0b" fill="#fffbeb"/>;
+          case 'apoyo': return <Frown size={16} color="#ef4444" fill="#fef2f2"/>;
+          default: return null;
+      }
+  };
+
+  const getPerformanceColor = (perf) => {
+      switch(perf) {
+          case 'logrado': return '#10b981'; // Verde
+          case 'proceso': return '#f59e0b'; // Amarillo
+          case 'apoyo': return '#ef4444';   // Rojo
+          default: return '#e5e7eb';        // Gris
+      }
+  };
+
   if (loading) return <div style={{paddingBottom:'20px'}}><Skeleton height="50px" style={{marginBottom:'10px'}}/><Skeleton height="200px"/></div>;
 
   return (
@@ -204,9 +222,16 @@ export function EvidenceList() {
              </select>
          </div>
 
-         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-             <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'14px', fontWeight:'bold', color:'#333'}}>
-                 {filterStudent ? (<>👤 Portafolio: <span style={{color:'#3b82f6'}}>{studentsMap[filterStudent]}</span></>) : filterActivity ? (<><button onClick={()=>setFilterActivity(null)} style={{background:'none', border:'none', cursor:'pointer'}}><ArrowLeft size={16}/></button> 📂 {filterActivity}</>) : (<>📂 Todas las Carpetas</>)}
+         {/* FILA DE ACCIONES EXTRA */}
+         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+             <div style={{display:'flex', gap:'5px'}}>
+                 {/* Filtro Semáforo Rápido */}
+                 <select value={filterPerformance} onChange={e=>setFilterPerformance(e.target.value)} style={{padding:'6px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'11px'}}>
+                     <option value="Todos">🌈 Todos</option>
+                     <option value="logrado">🟢 Logrado</option>
+                     <option value="proceso">🟡 Proceso</option>
+                     <option value="apoyo">🔴 Apoyo</option>
+                 </select>
              </div>
              
              <div style={{display:'flex', gap:'5px'}}>
@@ -216,37 +241,33 @@ export function EvidenceList() {
                      </button>
                  )}
                  <button onClick={()=>setShowStats(!showStats)} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background: showStats ? '#f59e0b' : '#f3f4f6', color: showStats ? 'white' : '#444', border:'none', borderRadius:'20px'}}>
-                     <PieChart size={12}/> Progreso
+                     <PieChart size={12}/>
                  </button>
              </div>
          </div>
 
-         {/* PANEL ESTADÍSTICAS */}
+         {/* TÍTULO ACTUAL */}
+         <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'13px', fontWeight:'bold', color:'#333', marginTop:'5px'}}>
+             {filterStudent ? (<>👤 Portafolio: <span style={{color:'#3b82f6'}}>{studentsMap[filterStudent]}</span></>) : filterActivity ? (<><button onClick={()=>setFilterActivity(null)} style={{background:'none', border:'none', cursor:'pointer'}}><ArrowLeft size={14}/></button> 📂 {filterActivity}</>) : (<>📂 Todas las Carpetas</>)}
+         </div>
+
+         {/* PANEL ESTADÍSTICAS (Mismo código) */}
          {showStats && (
              <div style={{marginTop:'5px', paddingTop:'10px', borderTop:'1px dashed #e2e8f0', animation:'fadeIn 0.3s'}}>
                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5px'}}>
-                     <span style={{fontSize:'12px', fontWeight:'bold', color:'#555'}}>Cobertura del Curso: {coveragePercent}%</span>
-                     <span style={{fontSize:'12px', color:'#888'}}>{studentsList.length - missingStudents.length}/{studentsList.length} alumnos</span>
+                     <span style={{fontSize:'12px', fontWeight:'bold', color:'#555'}}>Cobertura: {coveragePercent}%</span>
+                     <span style={{fontSize:'12px', color:'#888'}}>{studentsList.length - missingStudents.length}/{studentsList.length}</span>
                  </div>
                  <div style={{width:'100%', height:'8px', background:'#e2e8f0', borderRadius:'4px', overflow:'hidden', marginBottom:'10px'}}>
                      <div style={{width:`${coveragePercent}%`, height:'100%', background: coveragePercent === 100 ? '#10b981' : coveragePercent > 50 ? '#f59e0b' : '#ef4444', transition:'width 0.5s'}}></div>
                  </div>
-                 {missingStudents.length === 0 ? (
-                     <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#10b981', background:'#ecfdf5', padding:'8px', borderRadius:'6px'}}><CheckCircle size={14}/> Todos evaluados.</div>
-                 ) : (
-                     <div style={{fontSize:'12px'}}>
-                         <div style={{display:'flex', alignItems:'center', gap:'5px', color:'#b91c1c', marginBottom:'5px'}}><AlertTriangle size={14}/> <strong>Faltan evidencias de:</strong></div>
-                         <div style={{display:'flex', flexWrap:'wrap', gap:'5px', maxHeight:'80px', overflowY:'auto'}}>
-                             {missingStudents.map(s => <span key={s.id} style={{background:'#fee2e2', color:'#991b1b', padding:'2px 6px', borderRadius:'4px', border:'1px solid #fca5a5'}}>{s.name}</span>)}
-                         </div>
-                     </div>
-                 )}
+                 {missingStudents.length > 0 && <div style={{fontSize:'11px', color:'#b91c1c'}}>Faltan: {missingStudents.slice(0,5).map(s=>s.name).join(', ')}{missingStudents.length>5&&'...'}</div>}
              </div>
          )}
       </div>
 
-      {/* 2. VISTA CARPETAS */}
-      {!filterActivity && !filterStudent && (
+      {/* 2. VISTA CARPETAS (Solo si no hay filtro de portafolio ni semáforo) */}
+      {!filterActivity && !filterStudent && filterPerformance === 'Todos' && (
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
               {Object.keys(folders).map(name => (
                   <div key={name} onClick={() => setFilterActivity(name)} style={{background:'white', borderRadius:'10px', border:'1px solid #e2e8f0', padding:'10px', display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', boxShadow:'0 1px 2px rgba(0,0,0,0.05)'}}>
@@ -257,17 +278,20 @@ export function EvidenceList() {
                       </div>
                   </div>
               ))}
-              {Object.keys(folders).length === 0 && <p style={{gridColumn:'span 2', textAlign:'center', color:'#999'}}>No hay evidencias.</p>}
+              {Object.keys(folders).length === 0 && filteredItems.length === 0 && <p style={{gridColumn:'span 2', textAlign:'center', color:'#999'}}>No hay evidencias.</p>}
           </div>
       )}
 
       {/* 3. VISTA GRILLA */}
-      {(filterActivity || filterStudent) && (
+      {(filterActivity || filterStudent || filterPerformance !== 'Todos') && (
           <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'2px'}}>
               {filteredItems.map(item => (
-                  <div key={item.id} onClick={() => { setInspectorItem(item); setIsEditing(false); }} style={{aspectRatio:'1/1', position:'relative', overflow:'hidden', background:'#f1f5f9'}}>
+                  <div key={item.id} onClick={() => { setInspectorItem(item); setIsEditing(false); }} style={{aspectRatio:'1/1', position:'relative', overflow:'hidden', background:'#f1f5f9', borderBottom:`3px solid ${getPerformanceColor(item.performance)}`}}>
                       {(item.fileUrl.includes('.mp4') || item.fileType === 'video') && <Film size={16} color="white" style={{position:'absolute', top:5, left:5, zIndex:2}}/>}
                       {item.isFavorite && <Star size={16} color="#f59e0b" fill="#f59e0b" style={{position:'absolute', top:5, right:5, zIndex:2}}/>}
+                      {/* Indicador Semáforo Miniatura */}
+                      {item.performance && <div style={{position:'absolute', bottom:5, right:5, zIndex:2}}>{getPerformanceIcon(item.performance)}</div>}
+                      
                       {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
                           <video src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
                       ) : (
@@ -282,6 +306,7 @@ export function EvidenceList() {
       {/* 4. INSPECTOR / EDITOR */}
       {inspectorItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
+            {/* Header Inspector */}
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', color:'white'}}>
                 <button onClick={() => setInspectorItem(null)} style={{background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', padding:'8px', color:'white'}}><X size={20}/></button>
                 <div style={{display:'flex', gap:'15px'}}>
@@ -289,7 +314,12 @@ export function EvidenceList() {
                         <Star size={24} fill={inspectorItem.isFavorite ? "#f59e0b" : "none"} color={inspectorItem.isFavorite ? "#f59e0b" : "white"}/>
                     </button>
                     <button onClick={() => {
-                        setEditData({ activityName: inspectorItem.activityName, comment: inspectorItem.comment || '', studentIds: inspectorItem.studentIds || [] });
+                        setEditData({ 
+                            activityName: inspectorItem.activityName, 
+                            comment: inspectorItem.comment || '', 
+                            studentIds: inspectorItem.studentIds || [],
+                            performance: inspectorItem.performance || '' // Cargar semáforo actual
+                        });
                         setIsEditing(!isEditing);
                     }} style={{background: isEditing ? '#3b82f6' : 'none', border:'none', color:'white', borderRadius:'4px', padding:'2px'}}>
                         <Edit2 size={24}/>
@@ -297,7 +327,7 @@ export function EvidenceList() {
                 </div>
             </div>
             
-            {/* VISOR */}
+            {/* Visor Multimedia */}
             <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden'}}>
                 {inspectorItem.fileUrl.includes('.mp4') || inspectorItem.fileType === 'video' ? (
                      <video src={inspectorItem.fileUrl} controls autoPlay style={{maxWidth:'100%', maxHeight:'100%'}} />
@@ -306,11 +336,20 @@ export function EvidenceList() {
                 )}
             </div>
             
-            {/* PANEL INFO/EDICIÓN */}
-            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'45vh', overflowY:'auto'}}>
+            {/* Panel Inferior */}
+            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'50vh', overflowY:'auto'}}>
                 {!isEditing ? (
+                    // MODO LECTURA
                     <div style={{padding:'20px'}}>
-                        <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                            <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
+                            {/* Badge de Semáforo en Lectura */}
+                            {inspectorItem.performance && (
+                                <span style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', padding:'4px 8px', borderRadius:'12px', background: getPerformanceColor(inspectorItem.performance) + '20', color: getPerformanceColor(inspectorItem.performance), border:`1px solid ${getPerformanceColor(inspectorItem.performance)}`, fontWeight:'bold', textTransform:'uppercase'}}>
+                                    {getPerformanceIcon(inspectorItem.performance)} {inspectorItem.performance}
+                                </span>
+                            )}
+                        </div>
                         <p style={{fontSize:'12px', color:'#666', margin:0}}>{inspectorItem.date?.toDate().toLocaleString()}</p>
                         <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'10px'}}>
                             {inspectorItem.studentIds?.map(uid => (
@@ -325,17 +364,30 @@ export function EvidenceList() {
                         </div>
                     </div>
                 ) : (
+                    // MODO EDICIÓN
                     <div style={{padding:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
                         
-                        {/* FILTROS DE ALUMNOS (AHORA COMPLETOS) */}
+                        {/* SELECCIÓN DE DESEMPEÑO (NUEVO) */}
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Evaluación de Desempeño</label>
+                        <div style={{display:'flex', gap:'10px'}}>
+                            <button onClick={()=>setEditData({...editData, performance: 'logrado'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='logrado' ? '#10b981' : '#e5e7eb'}`, background: editData.performance==='logrado' ? '#ecfdf5' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
+                                <Smile color="#10b981"/> <span style={{fontSize:'10px', color:'#10b981'}}>Logrado</span>
+                            </button>
+                            <button onClick={()=>setEditData({...editData, performance: 'proceso'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='proceso' ? '#f59e0b' : '#e5e7eb'}`, background: editData.performance==='proceso' ? '#fffbeb' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
+                                <Meh color="#f59e0b"/> <span style={{fontSize:'10px', color:'#f59e0b'}}>Proceso</span>
+                            </button>
+                            <button onClick={()=>setEditData({...editData, performance: 'apoyo'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='apoyo' ? '#ef4444' : '#e5e7eb'}`, background: editData.performance==='apoyo' ? '#fef2f2' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
+                                <Frown color="#ef4444"/> <span style={{fontSize:'10px', color:'#ef4444'}}>Apoyo</span>
+                            </button>
+                        </div>
+
+                        {/* FILTROS DE ALUMNOS */}
                         <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
                             <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista de Alumnos:</div>
-                            {/* FILA 1: NIVEL Y TANDA (NUEVO) */}
                             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginBottom:'5px'}}>
                                 <select value={modalFilters.level} onChange={e=>setModalFilters({...modalFilters, level:e.target.value})} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
                                 <select value={modalFilters.shift} onChange={e=>setModalFilters({...modalFilters, shift:e.target.value})} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
                             </div>
-                            {/* FILA 2: GRADO Y SECCIÓN */}
                             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
                                 <select value={modalFilters.grade} onChange={e=>setModalFilters({...modalFilters, grade:e.target.value})} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
                                 <select value={modalFilters.section} onChange={e=>setModalFilters({...modalFilters, section:e.target.value})} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
@@ -343,8 +395,7 @@ export function EvidenceList() {
                         </div>
 
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar ({getStudentsForEdit().length} visibles)</label>
-                        <div style={{maxHeight:'120px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
-                            {getStudentsForEdit().length === 0 && <p style={{fontSize:'11px', color:'#999', textAlign:'center'}}>No hay alumnos con estos filtros.</p>}
+                        <div style={{maxHeight:'100px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
                             {getStudentsForEdit().map(s => {
                                 const isSelected = editData.studentIds.includes(s.id);
                                 return (
