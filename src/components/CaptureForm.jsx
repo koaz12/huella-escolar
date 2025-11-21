@@ -6,8 +6,10 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
-// IMPORTAMOS ICONOS NUEVOS PARA LA CÁMARA
-import { FolderPlus, Image as ImageIcon, Film, X, Camera, Circle, Check } from 'lucide-react';
+import { 
+  FolderPlus, Image as ImageIcon, Film, X, Camera, Circle, Check, 
+  User, Filter, Search 
+} from 'lucide-react';
 
 export function CaptureForm() {
   const [activity, setActivity] = useState('');
@@ -18,7 +20,7 @@ export function CaptureForm() {
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
 
-  // --- ESTADOS Y REFS PARA CÁMARA PERSONALIZADA ---
+  // Estados Cámara
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const videoRef = useRef(null);
@@ -31,7 +33,7 @@ export function CaptureForm() {
   const [filterSection, setFilterSection] = useState('A');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // ... (El useEffect de cargar alumnos y actividades recientes SIGUE IGUAL) ...
+  // --- CARGA DE DATOS ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -61,62 +63,40 @@ export function CaptureForm() {
     return (student.level === filterLevel && student.shift === filterShift && student.grade === filterGrade && student.section === filterSection);
   });
 
-  // --- LÓGICA DE CÁMARA MÚLTIPLE ---
-
-  // 1. Iniciar Cámara
+  // --- LÓGICA CÁMARA ---
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' }, // Usa la cámara trasera si existe
-        audio: false 
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
       setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream;
       setIsCameraOpen(true);
-    } catch (err) {
-      toast.error("Error al abrir cámara: " + err.message);
-    }
+    } catch (err) { toast.error("Error cámara: " + err.message); }
   };
 
-  // 2. Detener Cámara
   const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-    }
+    if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
     setIsCameraOpen(false);
     setCameraStream(null);
   };
 
-  // 3. Tomar Foto (Capturar frame del video)
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    // Ajustar tamaño del canvas al video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    
-    // Dibujar el frame actual en el canvas
     const context = canvas.getContext('2d');
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Convertir canvas a archivo Blob
     canvas.toBlob((blob) => {
         if (!blob) return;
-        // Crear un archivo con nombre único
         const fileName = `capture_${Date.now()}.jpg`;
         const file = new File([blob], fileName, { type: 'image/jpeg' });
-        
-        // AGREGAR A LA LISTA PRINCIPAL DE ARCHIVOS
         setFiles(prev => [...prev, file]);
         toast.success("¡Foto capturada!", { duration: 1000, icon: '📸' });
-    }, 'image/jpeg', 0.9); // Calidad 0.9
+    }, 'image/jpeg', 0.9);
   };
 
-  // --- LÓGICA DE ARCHIVOS NORMALES ---
+  // --- ARCHIVOS ---
   const handleFilesChange = (e) => { 
     const selectedFiles = Array.from(e.target.files); 
     if (selectedFiles.length === 0) return;
@@ -124,7 +104,7 @@ export function CaptureForm() {
     const MAX_VIDEO_SIZE = 50 * 1024 * 1024; 
     selectedFiles.forEach(file => {
         if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) {
-            toast.error(`⚠️ Video "${file.name}" muy pesado (>50MB). Ignorado.`);
+            toast.error(`⚠️ Video muy pesado (>50MB). Ignorado.`);
         } else {
             validFiles.push(file);
         }
@@ -132,10 +112,9 @@ export function CaptureForm() {
     setFiles(prev => [...prev, ...validFiles]); 
   };
   
-  const removeFile = (index) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeFile = (index) => setFiles(prev => prev.filter((_, i) => i !== index));
 
+  // --- SELECCIÓN DE ALUMNOS (TOGGLE) ---
   const toggleStudent = (id) => {
     if (selectedStudents.includes(id)) setSelectedStudents(selectedStudents.filter(s => s !== id));
     else setSelectedStudents([...selectedStudents, id]);
@@ -143,26 +122,28 @@ export function CaptureForm() {
 
   const selectAllVisible = () => {
     const visibleIds = visibleStudents.map(s => s.id);
-    setSelectedStudents(prev => [...new Set([...prev, ...visibleIds])]);
-    toast.success(`Seleccionados: ${visibleIds.length}`);
+    // Si ya están todos seleccionados, deseleccionar todos
+    const allSelected = visibleIds.every(id => selectedStudents.includes(id));
+    if (allSelected) {
+        setSelectedStudents(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+        setSelectedStudents(prev => [...new Set([...prev, ...visibleIds])]);
+    }
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (files.length === 0 || !activity) return toast.error("Falta foto/video o nombre de actividad");
+    if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
     setLoading(true);
-    const loadingToast = toast.loading(`Iniciando carga de ${files.length} archivos...`);
+    const loadingToast = toast.loading(`Subiendo ${files.length} archivos...`);
     try {
       let count = 0;
       for (const file of files) {
           count++;
-          toast.loading(`Procesando archivo ${count} de ${files.length}...`, { id: loadingToast });
           let fileToUpload = file;
           if (file.type.startsWith('image/')) {
-            try {
-                const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true };
-                fileToUpload = await imageCompression(file, options);
-            } catch (error) { console.error("Error compresión", error); }
+            try { fileToUpload = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }); } 
+            catch (error) { console.error(error); }
           }
           if (!navigator.onLine) {
              await saveOffline(fileToUpload, activity, selectedStudents, comment);
@@ -178,126 +159,153 @@ export function CaptureForm() {
              });
           }
       }
-      toast.success("¡Todo subido correctamente!", { id: loadingToast });
+      toast.success("¡Guardado!", { id: loadingToast });
       setActivity(''); setComment(''); setFiles([]); setSelectedStudents([]);
     } catch (error) {
       console.error(error);
       toast.error("Error: " + error.message, { id: loadingToast });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
-    <div style={{ padding: '15px', border: '1px solid #eee', borderRadius: '12px', background: 'white', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+    <div style={{ paddingBottom:'20px' }}>
       
-      {/* --- INTERFAZ DE CÁMARA A PANTALLA COMPLETA (OVERLAY) --- */}
+      {/* CÁMARA OVERLAY */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
-            {/* Video en vivo */}
             <video ref={videoRef} autoPlay playsInline style={{ width:'100%', flex:1, objectFit:'cover' }}></video>
-            {/* Canvas oculto para capturar */}
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
-            
-            {/* Controles de Cámara */}
-            <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                {/* Botón Cerrar/Listo */}
+            <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'30px 20px', background:'linear-gradient(to top, black, transparent)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}>
-                    <Check size={30} color="#10b981"/>
-                    <span style={{fontSize:'12px'}}>Listo ({files.length})</span>
+                    <Check size={32} color="#10b981"/> <span style={{fontSize:'12px', fontWeight:'bold'}}>Listo ({files.length})</span>
                 </button>
-
-                {/* Botón Obturador (Disparar) */}
-                <button onClick={capturePhoto} style={{ width:'70px', height:'70px', borderRadius:'50%', background:'white', border:'4px solid #ccc', display:'grid', placeItems:'center', padding:0 }}>
-                    <Circle size={60} fill="white" color="#999" />
+                <button onClick={capturePhoto} style={{ width:'75px', height:'75px', borderRadius:'50%', background:'white', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0, boxShadow:'0 0 15px rgba(0,0,0,0.5)' }}>
+                    <div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid black'}}></div>
                 </button>
-
-                 {/* Miniatura de última foto (si hay) */}
                  {files.length > 0 && files[files.length-1].type.startsWith('image/') ? (
-                    <div style={{width:'40px', height:'40px', borderRadius:'8px', overflow:'hidden', border:'2px solid white'}}>
+                    <div style={{width:'45px', height:'45px', borderRadius:'8px', overflow:'hidden', border:'2px solid white'}}>
                          <img src={URL.createObjectURL(files[files.length-1])} style={{width:'100%', height:'100%', objectFit:'cover'}} />
                     </div>
-                 ) : <div style={{width:'40px'}}></div>}
+                 ) : <div style={{width:'45px'}}></div>}
             </div>
         </div>
       )}
 
-      <h3 style={{marginTop: 0, color: '#444'}}>📸 Carga Múltiple</h3>
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        
-        {/* INPUT CON SUGERENCIAS (CARPETAS) */}
-        <div>
-            <label style={{fontSize:'12px', fontWeight:'bold', color:'#666'}}>Nombre de Actividad (Carpeta)</label>
-            <input list="activities-list" type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ej: Baloncesto, Voleibol..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none' }} />
-            <datalist id="activities-list">{recentActivities.map((act, i) => <option key={i} value={act} />)}</datalist>
-        </div>
-
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios (opcional)..." style={{ padding: '10px', height: '60px', borderRadius: '8px', border: '1px solid #ddd' }} />
-        
-        {/* --- ZONA DE BOTONES DE CARGA (NUEVO DISEÑO) --- */}
-        <div style={{display:'flex', gap:'10px'}}>
+      <div style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
+          <h3 style={{marginTop: 0, marginBottom:'15px', color: '#1f2937'}}>📸 Nueva Captura</h3>
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             
-            {/* BOTÓN 1: ABRIR CÁMARA MÚLTIPLE */}
-            <button type="button" onClick={startCamera} style={{flex: 1, border:'2px dashed #10b981', background:'#ecfdf5', padding:'15px', borderRadius:'8px', textAlign:'center', cursor:'pointer', color:'#059669'}}>
-                <Camera size={30} style={{marginBottom:'5px'}}/>
-                <div style={{fontWeight:'bold'}}>Modo Cámara</div>
-                <div style={{fontSize:'11px'}}>Tomar varias fotos seguidas</div>
-            </button>
-
-            {/* BOTÓN 2: SELECCIONAR ARCHIVOS (Input oculto) */}
-            <label style={{flex: 1, border:'2px dashed #3b82f6', background:'#eff6ff', padding:'15px', borderRadius:'8px', textAlign:'center', cursor:'pointer', color:'#1d4ed8'}}>
-                <FolderPlus size={30} style={{marginBottom:'5px'}}/>
-                <div style={{fontWeight:'bold'}}>Galería/Archivos</div>
-                <div style={{fontSize:'11px'}}>Elegir fotos o videos existentes</div>
-                <input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} />
-            </label>
-        </div>
-
-        {/* PREVISUALIZACIÓN DE ARCHIVOS SELECCIONADOS */}
-        {files.length > 0 && (
-            <div style={{display:'flex', gap:'10px', overflowX:'auto', padding:'5px', background:'#f8f9fa', borderRadius:'8px'}}>
-                {files.map((f, i) => (
-                    <div key={i} style={{position:'relative', minWidth:'60px', height:'60px', borderRadius:'8px', overflow:'hidden', border:'1px solid #ddd', flexShrink:0}}>
-                        {f.type.startsWith('video/') ? <Film size={24} style={{position:'absolute', top:'18px', left:'18px', color:'#666'}}/> : <img src={URL.createObjectURL(f)} style={{width:'100%', height:'100%', objectFit:'cover'}}/>}
-                        <button type="button" onClick={()=>removeFile(i)} style={{position:'absolute', top:0, right:0, background:'rgba(0,0,0,0.5)', color:'white', border:'none', padding:'2px'}}><X size={12}/></button>
-                    </div>
-                ))}
-                <div style={{alignSelf:'center', fontSize:'12px', color:'#666', whiteSpace:'nowrap'}}>+{files.length} archivos</div>
+            {/* INPUT ACTIVIDAD */}
+            <div>
+                <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
+                <input list="activities-list" type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ej: Voleibol, Resistencia..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box' }} />
+                <datalist id="activities-list">{recentActivities.map((act, i) => <option key={i} value={act} />)}</datalist>
             </div>
-        )}
 
-        <div style={{ backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '8px', border: '1px solid #e9ecef' }}>
-          {/* ... (Selectores de filtro y lista de alumnos IGUAL que antes) ... */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', marginBottom: '5px' }}>
-            <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}><option>Primaria</option><option>Secundaria</option></select>
-            <select value={filterShift} onChange={e => setFilterShift(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-             <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-             <select value={filterSection} onChange={e => setFilterSection(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
-          </div>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-            <small style={{color:'#666'}}>Etiquetar alumnos visibles:</small>
-            <button type="button" onClick={selectAllVisible} style={{fontSize: '12px', padding: '4px 8px', background: '#e9ecef', border: 'none', borderRadius: '4px'}}>Todos</button>
-          </div>
-
-          <div style={{ maxHeight: '150px', overflowY: 'auto', background: 'white', borderRadius: '4px', border: '1px solid #eee' }}>
-            {visibleStudents.map(student => (
-              <div key={student.id} style={{ padding: '8px', borderBottom: '1px solid #f0f0f0' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor:'pointer' }}>
-                  <input type="checkbox" checked={selectedStudents.includes(student.id)} onChange={() => toggleStudent(student.id)} style={{ transform: 'scale(1.3)' }} />
-                  <span style={{ fontSize: '13px' }}><strong>#{student.listNumber}</strong> {student.name}</span>
+            {/* BOTONES GRANDES DE ACCIÓN */}
+            <div style={{display:'flex', gap:'10px'}}>
+                <button type="button" onClick={startCamera} style={{flex: 1, border:'none', background:'#10b981', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'white', boxShadow:'0 4px 6px rgba(16, 185, 129, 0.2)', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
+                    <Camera size={28}/>
+                    <div style={{fontWeight:'bold', fontSize:'14px'}}>Cámara</div>
+                </button>
+                <label style={{flex: 1, border:'2px solid #3b82f6', background:'white', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#3b82f6', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
+                    <FolderPlus size={28}/>
+                    <div style={{fontWeight:'bold', fontSize:'14px'}}>Galería</div>
+                    <input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} />
                 </label>
-              </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        <button type="submit" disabled={loading} style={{ backgroundColor: '#007bff', color: 'white', padding: '14px', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold' }}>
-          {loading ? 'Subiendo...' : `💾 Guardar ${files.length} Evidencias`}
-        </button>
-      </form>
+            {/* PREVIEW DE ARCHIVOS */}
+            {files.length > 0 && (
+                <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
+                    {files.map((f, i) => (
+                        <div key={i} style={{position:'relative', minWidth:'70px', height:'70px', borderRadius:'8px', overflow:'hidden', border:'1px solid #ddd', flexShrink:0, background:'white'}}>
+                            {f.type.startsWith('video/') ? <Film size={24} style={{position:'absolute', top:'22px', left:'22px', color:'#666'}}/> : <img src={URL.createObjectURL(f)} style={{width:'100%', height:'100%', objectFit:'cover'}}/>}
+                            <button type="button" onClick={()=>removeFile(i)} style={{position:'absolute', top:0, right:0, background:'rgba(0,0,0,0.6)', color:'white', border:'none', width:'20px', height:'20px', display:'grid', placeItems:'center'}}><X size={12}/></button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios sobre la clase..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
+
+            {/* SECCIÓN DE ALUMNOS (REDISEÑADA) */}
+            <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                  <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
+              </div>
+              
+              {/* FILTROS DE CLASE */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
+                 <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} style={selectStyle}><option>Primaria</option><option>Secundaria</option></select>
+                 <select value={filterShift} onChange={e => setFilterShift(e.target.value)} style={selectStyle}><option>Matutina</option><option>Vespertina</option></select>
+                 <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} style={selectStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                 <select value={filterSection} onChange={e => setFilterSection(e.target.value)} style={selectStyle}>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
+              </div>
+              
+              {/* BARRA BUSCADOR Y SELECCIONAR TODOS */}
+              <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
+                  <div style={{position:'relative', flex:1}}>
+                      <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
+                      <input placeholder="Buscar alumno..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'6px 6px 6px 28px', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'13px', boxSizing:'border-box'}} />
+                  </div>
+                  <button type="button" onClick={selectAllVisible} style={{fontSize: '11px', padding: '0 12px', background: '#e2e8f0', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight:'600', color:'#475569'}}>
+                      Todos
+                  </button>
+              </div>
+
+              {/* GRILLA DE CHIPS DE ALUMNOS (NUEVO DISEÑO) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
+                {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
+                
+                {visibleStudents.map(student => {
+                   const isSelected = selectedStudents.includes(student.id);
+                   return (
+                      <div 
+                        key={student.id} 
+                        onClick={() => toggleStudent(student.id)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '8px', borderRadius: '8px',
+                            border: isSelected ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                            background: isSelected ? '#eff6ff' : 'white',
+                            cursor: 'pointer', transition: 'all 0.1s'
+                        }}
+                      >
+                         {/* Check visual */}
+                         <div style={{
+                             width:'18px', height:'18px', borderRadius:'4px', 
+                             border: isSelected ? 'none' : '2px solid #cbd5e1',
+                             background: isSelected ? '#2563eb' : 'transparent',
+                             display:'grid', placeItems:'center'
+                         }}>
+                             {isSelected && <Check size={12} color="white"/>}
+                         </div>
+                         
+                         {/* Foto mini */}
+                         {student.photoUrl ? (
+                             <img src={student.photoUrl} style={{width:'24px', height:'24px', borderRadius:'50%', objectFit:'cover'}}/>
+                         ) : (
+                             <div style={{width:'24px', height:'24px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={14} color="#94a3b8"/></div>
+                         )}
+
+                         <div style={{overflow:'hidden'}}>
+                             <div style={{fontSize:'12px', fontWeight:'600', color: isSelected ? '#1e40af' : '#333', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{student.name}</div>
+                             <div style={{fontSize:'10px', color: isSelected ? '#60a5fa' : '#94a3b8'}}>#{student.listNumber}</div>
+                         </div>
+                      </div>
+                   )
+                })}
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading} style={{ backgroundColor: '#2563eb', color: 'white', padding: '14px', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', marginTop:'5px', boxShadow:'0 4px 10px rgba(37, 99, 235, 0.3)' }}>
+              {loading ? 'Guardando...' : `💾 Guardar Evidencia`}
+            </button>
+          </form>
+      </div>
     </div>
   );
 }
+
+const selectStyle = { padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', width:'100%', background:'white' };
