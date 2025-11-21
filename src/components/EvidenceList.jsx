@@ -1,255 +1,388 @@
 // src/components/EvidenceList.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
-import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore'; // <--- Agregamos updateDoc
+import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { 
   Trash2, Search, X, PlayCircle, Folder, ArrowLeft, 
-  Edit2, Save, Image as ImageIcon, Film 
+  Edit2, Save, Filter, Download, User, Star, MoreVertical, Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Skeleton } from './Skeleton'; 
+import { Skeleton } from './Skeleton';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 export function EvidenceList() {
+  // --- ESTADOS DE DATOS ---
   const [evidences, setEvidences] = useState([]);
+  const [studentsMap, setStudentsMap] = useState({}); // Mapa ID -> Nombre (ej: "uid123": "Juan")
+  const [studentsList, setStudentsList] = useState([]); // Array simple para selectores
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  // Estados de Navegación
-  const [selectedFolder, setSelectedFolder] = useState(null);
-  const [selectedItem, setSelectedItem] = useState(null);
-  
-  // Estados de Edición
-  const [isEditing, setIsEditing] = useState(false);
-  const [editFormData, setEditFormData] = useState({ activityName: '', comment: '' });
 
+  // --- ESTADOS DE VISTA Y FILTROS ---
+  const [viewMode, setViewMode] = useState('folders'); // 'folders' | 'grid'
+  const [filterActivity, setFilterActivity] = useState(null); // Si tiene valor, entramos a esa carpeta
+  const [filterStudent, setFilterStudent] = useState(''); // ID del estudiante para filtrar "Portafolio"
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // --- ESTADOS DE INTERACCIÓN ---
+  const [inspectorItem, setInspectorItem] = useState(null); // Item abierto en el modal
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  
+  // Datos temporales para el formulario de edición
+  const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [] });
+
+  // 1. CARGA INICIAL (Evidencias + Alumnos para traducir IDs)
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        const q = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
-        const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+        // A) Cargar Evidencias
+        const qEv = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
+        const unsubEv = onSnapshot(qEv, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Ordenar: Favoritos primero, luego fecha
           docs.sort((a, b) => {
-            const dateA = a.date?.toDate ? a.date.toDate() : new Date(0);
-            const dateB = b.date?.toDate ? b.date.toDate() : new Date(0);
-            return dateB - dateA;
+             if (a.isFavorite && !b.isFavorite) return -1;
+             if (!a.isFavorite && b.isFavorite) return 1;
+             return (b.date?.seconds || 0) - (a.date?.seconds || 0);
           });
           setEvidences(docs);
           setLoading(false);
         });
-        return () => unsubscribeSnapshot();
-      } else {
-        setLoading(false);
+
+        // B) Cargar Alumnos (Para mostrar nombres en vez de IDs)
+        const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
+        const unsubStu = onSnapshot(qStu, (qs) => {
+           const map = {};
+           const list = [];
+           qs.forEach(d => {
+               const data = d.data();
+               map[d.id] = data.name; // Crear mapa de búsqueda rápida
+               list.push({ id: d.id, name: data.name });
+           });
+           setStudentsMap(map);
+           setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
+        });
+
+        return () => { unsubEv(); unsubStu(); };
       }
     });
     return () => unsubscribeAuth();
   }, []);
 
-  // --- ACCIONES ---
-
-  const handleDelete = async (item) => {
-    if (!confirm("¿Borrar esta evidencia permanentemente?")) return;
-    const toastId = toast.loading("Borrando...");
-    try {
-      const fileRef = ref(storage, item.fileUrl);
-      await deleteObject(fileRef).catch(e => console.log("Archivo ya no existía en nube"));
-      await deleteDoc(doc(db, "evidence", item.id));
-      setSelectedItem(null);
-      toast.success("Eliminada", { id: toastId });
+  // --- LÓGICA DE FILTRADO INTELIGENTE ---
+  const getFilteredEvidences = () => {
+    return evidences.filter(item => {
+      // 1. Filtro Texto (Busca en actividad o comentario)
+      const matchesText = 
+          item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+          (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
       
-      // Verificar si la carpeta quedó vacía
-      const remainingInFolder = evidences.filter(e => e.id !== item.id && e.activityName === selectedFolder);
-      if (remainingInFolder.length === 0) setSelectedFolder(null);
+      // 2. Filtro Actividad (Carpeta)
+      const matchesActivity = filterActivity ? item.activityName === filterActivity : true;
+      
+      // 3. Filtro Estudiante (Portafolio)
+      const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
 
+      return matchesText && matchesActivity && matchesStudent;
+    });
+  };
+
+  const filteredItems = getFilteredEvidences();
+
+  // Agrupar por carpetas (solo si no estamos filtrando por estudiante)
+  const folders = {};
+  if (!filterStudent) {
+      filteredItems.forEach(item => {
+        const name = item.activityName || "Sin Nombre";
+        if (!folders[name]) folders[name] = [];
+        folders[name].push(item);
+      });
+  }
+
+  // --- ACCIONES DEL GESTOR ---
+
+  const handleDelete = async () => {
+    if (!confirm("¿Borrar esta evidencia definitivamente?")) return;
+    try {
+      // Borrar de storage y db... (lógica igual a la anterior)
+      const fileRef = ref(storage, inspectorItem.fileUrl);
+      await deleteObject(fileRef).catch(() => {});
+      await deleteDoc(doc(db, "evidence", inspectorItem.id));
+      setInspectorItem(null);
+      toast.success("Evidencia eliminada");
     } catch (error) {
-      toast.error("Error al borrar", { id: toastId });
+      toast.error("Error borrando");
     }
   };
 
-  const startEditing = (item) => {
-    setEditFormData({ activityName: item.activityName, comment: item.comment || '' });
-    setIsEditing(true);
+  const toggleFavorite = async (item, e) => {
+    e?.stopPropagation(); // Evitar abrir el modal si toco la estrella
+    try {
+        await updateDoc(doc(db, "evidence", item.id), {
+            isFavorite: !item.isFavorite
+        });
+        // Actualizar estado local si está abierto en inspector
+        if(inspectorItem?.id === item.id) {
+            setInspectorItem(prev => ({...prev, isFavorite: !prev.isFavorite}));
+        }
+        toast.success(item.isFavorite ? "Quitado de favoritos" : "Agregado a favoritos ⭐", {duration: 1000});
+    } catch (e) { console.error(e); }
   };
 
   const handleUpdate = async () => {
-    if (!editFormData.activityName.trim()) return toast.error("El nombre de la actividad es obligatorio");
-    
-    const toastId = toast.loading("Actualizando...");
+    const toastId = toast.loading("Guardando cambios...");
     try {
-      await updateDoc(doc(db, "evidence", selectedItem.id), {
-        activityName: editFormData.activityName,
-        comment: editFormData.comment
-      });
-      
-      toast.success("Actualizado", { id: toastId });
-      setIsEditing(false);
-      
-      // Si cambiamos el nombre de la actividad, la foto "desaparece" de la carpeta actual
-      // porque técnicamente se movió a otra. Cerramos el modal.
-      if (editFormData.activityName !== selectedFolder) {
-          setSelectedItem(null);
-          // Opcional: Podríamos mantenernos en la carpeta vieja o irnos a la raíz
-      } else {
-          // Actualizamos el item seleccionado visualmente
-          setSelectedItem(prev => ({ ...prev, ...editFormData }));
-      }
-
-    } catch (error) {
-      console.error(error);
-      toast.error("Error al actualizar", { id: toastId });
+        await updateDoc(doc(db, "evidence", inspectorItem.id), {
+            activityName: editData.activityName,
+            comment: editData.comment,
+            studentIds: editData.studentIds
+        });
+        setInspectorItem(prev => ({...prev, ...editData}));
+        setIsEditing(false);
+        toast.success("Actualizado", {id: toastId});
+    } catch (e) {
+        toast.error("Error al guardar", {id: toastId});
     }
   };
 
-  // --- AGRUPACIÓN ---
-  const filteredEvidences = evidences.filter(item => 
-    item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.grade && item.grade.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // --- DESCARGA ZIP (LA JOYA DE LA CORONA) ---
+  const downloadFolderZip = async () => {
+    if (filteredItems.length === 0) return;
+    
+    setIsDownloading(true);
+    const toastId = toast.loading(`Empaquetando ${filteredItems.length} archivos...`);
+    const zip = new JSZip();
+    
+    try {
+        // Descargar cada archivo y añadirlo al ZIP
+        const promises = filteredItems.map(async (item, index) => {
+            const response = await fetch(item.fileUrl);
+            const blob = await response.blob();
+            // Nombre del archivo: 1_Juan_Actividad.jpg
+            const ext = item.fileUrl.includes('.mp4') ? 'mp4' : 'jpg';
+            const fileName = `${index+1}_${item.activityName}.${ext}`;
+            zip.file(fileName, blob);
+        });
 
-  const folders = {};
-  filteredEvidences.forEach(item => {
-    const name = item.activityName || "Sin Nombre";
-    if (!folders[name]) folders[name] = [];
-    folders[name].push(item);
-  });
+        await Promise.all(promises);
+        
+        // Generar ZIP
+        const content = await zip.generateAsync({type:"blob"});
+        const zipName = filterActivity ? `${filterActivity}.zip` : `Evidencias_HuellaEscolar.zip`;
+        saveAs(content, zipName);
+        
+        toast.success("¡Descarga lista!", {id: toastId});
+    } catch (error) {
+        console.error(error);
+        toast.error("Error en descarga. Intenta con menos archivos.", {id: toastId});
+    } finally {
+        setIsDownloading(false);
+    }
+  };
 
-  const folderContent = selectedFolder ? folders[selectedFolder] : [];
+  // --- RENDERIZADO ---
 
-  if (loading) return <div style={{paddingBottom:'20px'}}><Skeleton height="45px"/><br/><Skeleton height="200px"/></div>;
+  if (loading) return <div style={{paddingBottom:'20px'}}><Skeleton height="50px" style={{marginBottom:'10px'}}/><Skeleton height="200px"/></div>;
 
   return (
     <div style={{ paddingBottom: '20px' }}>
       
-      {/* HEADER NAVEGACIÓN */}
-      <div style={{ marginBottom: '15px' }}>
-        {selectedFolder ? (
-            <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-                <button onClick={() => setSelectedFolder(null)} style={{background:'white', border:'1px solid #ddd', padding:'8px', borderRadius:'8px', cursor:'pointer'}}>
-                    <ArrowLeft size={20}/>
-                </button>
-                <div>
-                    <h3 style={{margin:0, fontSize:'18px', color:'#333'}}>{selectedFolder}</h3>
-                    <span style={{fontSize:'12px', color:'#666'}}>{folderContent?.length || 0} archivos</span>
-                </div>
-            </div>
-        ) : (
-            <div style={{ position: 'relative' }}>
-                <Search size={18} style={{ position: 'absolute', left: '10px', top: '10px', color: '#9ca3af' }} />
-                <input 
-                    placeholder="Buscar carpeta o grado..." 
-                    value={searchTerm} 
-                    onChange={e => setSearchTerm(e.target.value)} 
-                    style={{ width: '100%', padding: '10px 10px 10px 35px', borderRadius: '8px', border: '1px solid #cbd5e1' }} 
-                />
-            </div>
-        )}
+      {/* 1. BARRA DE HERRAMIENTAS SUPERIOR (FILTROS) */}
+      <div style={{background:'white', padding:'10px', borderRadius:'12px', marginBottom:'15px', border:'1px solid #e2e8f0', display:'flex', flexDirection:'column', gap:'10px'}}>
+         
+         <div style={{display:'flex', gap:'10px'}}>
+             {/* Buscador Texto */}
+             <div style={{position:'relative', flex:1}}>
+                 <Search size={16} style={{position:'absolute', left:'10px', top:'10px', color:'#9ca3af'}}/>
+                 <input 
+                    placeholder="Buscar..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    style={{width:'100%', padding:'8px 8px 8px 32px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'13px'}}
+                 />
+             </div>
+             
+             {/* Filtro Alumno (Modo Portafolio) */}
+             <select 
+                value={filterStudent} 
+                onChange={e => { setFilterStudent(e.target.value); setFilterActivity(null); }}
+                style={{maxWidth:'120px', padding:'8px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'12px', background: filterStudent ? '#eff6ff' : 'white'}}
+             >
+                 <option value="">👤 Todos</option>
+                 {studentsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+             </select>
+         </div>
+
+         {/* Breadcrumbs / Título de lo que veo */}
+         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+             <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'14px', fontWeight:'bold', color:'#333'}}>
+                 {filterStudent ? (
+                     <>👤 Portafolio: <span style={{color:'#3b82f6'}}>{studentsMap[filterStudent] || 'Estudiante'}</span></>
+                 ) : filterActivity ? (
+                     <><button onClick={()=>setFilterActivity(null)} style={{background:'none', border:'none', cursor:'pointer'}}><ArrowLeft size={16}/></button> 📂 {filterActivity}</>
+                 ) : (
+                     <>📂 Todas las Carpetas</>
+                 )}
+             </div>
+             
+             {/* Botón Descargar ZIP (Solo si estoy filtrando algo) */}
+             {(filterActivity || filterStudent) && (
+                 <button onClick={downloadFolderZip} disabled={isDownloading} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background:'#10b981', color:'white', border:'none', borderRadius:'20px'}}>
+                     <Download size={12}/> {isDownloading ? '...' : 'ZIP'}
+                 </button>
+             )}
+         </div>
       </div>
 
-      {/* VISTA DE CARPETAS */}
-      {!selectedFolder && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            {Object.keys(folders).length === 0 && <p style={{gridColumn:'span 2', textAlign:'center', color:'#999'}}>No hay evidencias aún.</p>}
-            {Object.keys(folders).map(folderName => {
-                const items = folders[folderName];
-                const lastItem = items[0];
-                const isVideo = lastItem.fileUrl.includes('.mp4') || lastItem.fileType === 'video';
-                return (
-                    <div key={folderName} onClick={() => setSelectedFolder(folderName)} style={{background:'white', borderRadius:'12px', border:'1px solid #eee', overflow:'hidden', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', cursor:'pointer'}}>
-                        <div style={{height:'100px', background:'#f1f5f9', position:'relative'}}>
-                            {isVideo ? <div style={{width:'100%', height:'100%', display:'grid', placeItems:'center', background:'#333'}}><Film color="white" size={30}/></div> : <img src={lastItem.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />}
-                            <div style={{position:'absolute', top:'5px', right:'5px', background:'rgba(0,0,0,0.6)', color:'white', fontSize:'10px', padding:'2px 6px', borderRadius:'10px'}}>{items.length}</div>
-                        </div>
-                        <div style={{padding:'10px', display:'flex', alignItems:'center', gap:'8px'}}>
-                            <Folder size={18} color="#3b82f6" fill="#dbeafe" />
-                            <span style={{fontSize:'14px', fontWeight:'600', color:'#333', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{folderName}</span>
-                        </div>
-                    </div>
-                )
-            })}
-        </div>
-      )}
-
-      {/* VISTA DE CONTENIDO */}
-      {selectedFolder && folderContent && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-            {folderContent.map((item) => (
-                <div key={item.id} onClick={() => {setSelectedItem(item); setIsEditing(false);}} style={{ aspectRatio: '1/1', background: '#f1f5f9', overflow: 'hidden', position:'relative', cursor:'pointer' }}>
-                    {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
-                        <>
-                            <video src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            <PlayCircle size={24} color="white" style={{position:'absolute', top:'50%', left:'50%', transform:'translate(-50%, -50%)'}} />
-                        </>
-                    ) : <img src={item.fileUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                </div>
-            ))}
-        </div>
-      )}
-
-      {/* --- MODAL VISOR / EDITOR --- */}
-      {selectedItem && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 2000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          
-          {/* Botón Cerrar */}
-          <button onClick={() => setSelectedItem(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.2)', padding: '10px', borderRadius:'50%', border:'none', color:'white', cursor:'pointer', zIndex:2010 }}><X size={24}/></button>
-          
-          {/* Contenido Multimedia */}
-          <div style={{flex: 1, width:'100%', display:'flex', justifyContent:'center', alignItems:'center', padding:'20px'}}>
-             {selectedItem.fileUrl.includes('.mp4') || selectedItem.fileType === 'video' ? (
-                 <video src={selectedItem.fileUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '60vh' }} />
-             ) : (
-                 <img src={selectedItem.fileUrl} style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain' }} />
-             )}
+      {/* 2. VISTA DE CARPETAS (Solo si no filtro nada) */}
+      {!filterActivity && !filterStudent && (
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+              {Object.keys(folders).map(name => (
+                  <div key={name} onClick={() => setFilterActivity(name)} style={{background:'white', borderRadius:'10px', border:'1px solid #e2e8f0', padding:'10px', display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', boxShadow:'0 1px 2px rgba(0,0,0,0.05)'}}>
+                      <Folder size={24} color="#3b82f6" fill="#dbeafe"/>
+                      <div style={{overflow:'hidden'}}>
+                          <div style={{fontWeight:'600', fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{name}</div>
+                          <div style={{fontSize:'10px', color:'#666'}}>{folders[name].length} archivos</div>
+                      </div>
+                  </div>
+              ))}
           </div>
-          
-          {/* PANEL DE INFORMACIÓN / EDICIÓN */}
-          <div style={{width:'100%', background:'white', padding:'20px', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', animation:'slideUp 0.3s ease-out'}}>
-             
-             {!isEditing ? (
-                 // MODO LECTURA
-                 <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
-                        <div>
-                            <h3 style={{margin:0, color:'#333'}}>{selectedItem.activityName}</h3>
-                            <span style={{fontSize:'12px', color:'#666'}}>
-                                {selectedItem.date?.toDate().toLocaleDateString()} • {selectedItem.grade} {selectedItem.section}
-                            </span>
+      )}
+
+      {/* 3. VISTA DE GRILLA (Si filtro actividad o alumno) */}
+      {(filterActivity || filterStudent) && (
+          <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'2px'}}>
+              {filteredItems.map(item => (
+                  <div key={item.id} onClick={() => { setInspectorItem(item); setIsEditing(false); }} style={{aspectRatio:'1/1', position:'relative', overflow:'hidden', background:'#f1f5f9'}}>
+                      {/* Badge Video */}
+                      {(item.fileUrl.includes('.mp4') || item.fileType === 'video') && <Film size={16} color="white" style={{position:'absolute', top:5, left:5, zIndex:2}}/>}
+                      {/* Badge Favorito */}
+                      {item.isFavorite && <Star size={16} color="#f59e0b" fill="#f59e0b" style={{position:'absolute', top:5, right:5, zIndex:2}}/>}
+                      
+                      {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
+                          <video src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                      ) : (
+                          <img src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                      )}
+                  </div>
+              ))}
+              {filteredItems.length === 0 && <p style={{gridColumn:'span 3', textAlign:'center', padding:'20px', color:'#999'}}>No se encontraron fotos.</p>}
+          </div>
+      )}
+
+      {/* 4. EL INSPECTOR (VISOR PRO) */}
+      {inspectorItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Header del Inspector */}
+            <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', color:'white'}}>
+                <button onClick={() => setInspectorItem(null)} style={{background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', padding:'8px', color:'white'}}><X size={20}/></button>
+                <div style={{display:'flex', gap:'15px'}}>
+                    <button onClick={(e) => toggleFavorite(inspectorItem, e)} style={{background:'none', border:'none', color:'white'}}>
+                        <Star size={24} fill={inspectorItem.isFavorite ? "#f59e0b" : "none"} color={inspectorItem.isFavorite ? "#f59e0b" : "white"}/>
+                    </button>
+                    <button onClick={() => {
+                        setEditData({
+                            activityName: inspectorItem.activityName, 
+                            comment: inspectorItem.comment || '', 
+                            studentIds: inspectorItem.studentIds || []
+                        });
+                        setIsEditing(!isEditing);
+                    }} style={{background: isEditing ? '#3b82f6' : 'none', border:'none', color:'white', borderRadius:'4px', padding:'2px'}}>
+                        <Edit2 size={24}/>
+                    </button>
+                </div>
+            </div>
+
+            {/* Área de Visualización (Centro) */}
+            <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden'}}>
+                {inspectorItem.fileUrl.includes('.mp4') || inspectorItem.fileType === 'video' ? (
+                     <video src={inspectorItem.fileUrl} controls autoPlay style={{maxWidth:'100%', maxHeight:'100%'}} />
+                ) : (
+                     <img src={inspectorItem.fileUrl} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}} />
+                )}
+            </div>
+
+            {/* Panel Inferior (Detalles) */}
+            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'40vh', overflowY:'auto', transition:'all 0.3s'}}>
+                {!isEditing ? (
+                    // MODO LECTURA
+                    <div style={{padding:'20px'}}>
+                        <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
+                        <p style={{fontSize:'12px', color:'#666', margin:0}}>
+                            {inspectorItem.date?.toDate().toLocaleString()}
+                        </p>
+                        
+                        {/* Lista de Alumnos Etiquetados */}
+                        <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'10px'}}>
+                            {inspectorItem.studentIds?.map(uid => (
+                                <span key={uid} style={{fontSize:'11px', background:'#eff6ff', color:'#1e40af', padding:'3px 8px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px'}}>
+                                    <User size={10}/> {studentsMap[uid] || 'Desconocido'}
+                                </span>
+                            ))}
                         </div>
-                        <div style={{display:'flex', gap:'10px'}}>
-                            <button onClick={() => startEditing(selectedItem)} style={{background:'#f3f4f6', padding:'8px', borderRadius:'50%', border:'none', cursor:'pointer'}}><Edit2 size={20} color="#3b82f6"/></button>
-                            <button onClick={() => handleDelete(selectedItem)} style={{background:'#fee2e2', padding:'8px', borderRadius:'50%', border:'none', cursor:'pointer'}}><Trash2 size={20} color="#ef4444"/></button>
+
+                        {inspectorItem.comment && (
+                            <div style={{marginTop:'15px', background:'#f8f9fa', padding:'10px', borderRadius:'8px', fontSize:'14px', fontStyle:'italic'}}>
+                                "{inspectorItem.comment}"
+                            </div>
+                        )}
+                        
+                        <div style={{marginTop:'20px', display:'flex', justifyContent:'flex-end'}}>
+                             <button onClick={handleDelete} style={{color:'#ef4444', background:'none', border:'none', display:'flex', alignItems:'center', gap:'5px', fontSize:'12px'}}>
+                                 <Trash2 size={14}/> Eliminar Evidencia
+                             </button>
                         </div>
                     </div>
-                    {selectedItem.comment && <p style={{background:'#f8f9fa', padding:'10px', borderRadius:'8px', margin:0, fontSize:'14px', color:'#555'}}>"{selectedItem.comment}"</p>}
-                 </div>
-             ) : (
-                 // MODO EDICIÓN
-                 <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-                    <label style={{fontSize:'12px', fontWeight:'bold', color:'#666'}}>Nombre Actividad (Mover carpeta)</label>
-                    <input 
-                        value={editFormData.activityName} 
-                        onChange={e => setEditFormData({...editFormData, activityName: e.target.value})}
-                        style={{padding:'10px', border:'1px solid #3b82f6', borderRadius:'8px'}}
-                    />
-                    
-                    <label style={{fontSize:'12px', fontWeight:'bold', color:'#666'}}>Comentario</label>
-                    <textarea 
-                        value={editFormData.comment} 
-                        onChange={e => setEditFormData({...editFormData, comment: e.target.value})}
-                        style={{padding:'10px', border:'1px solid #ccc', borderRadius:'8px', height:'60px'}}
-                    />
+                ) : (
+                    // MODO EDICIÓN
+                    <div style={{padding:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Nombre Actividad</label>
+                        <input 
+                            value={editData.activityName} 
+                            onChange={e => setEditData({...editData, activityName: e.target.value})}
+                            style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px'}}
+                        />
 
-                    <div style={{display:'flex', gap:'10px', marginTop:'5px'}}>
-                        <button onClick={() => setIsEditing(false)} style={{flex:1, padding:'12px', background:'#f3f4f6', border:'none', borderRadius:'8px', fontWeight:'bold', color:'#666'}}>Cancelar</button>
-                        <button onClick={handleUpdate} style={{flex:1, padding:'12px', background:'#3b82f6', border:'none', borderRadius:'8px', fontWeight:'bold', color:'white', display:'flex', justifyContent:'center', gap:'5px'}}>
-                            <Save size={18}/> Guardar Cambios
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Comentario</label>
+                        <textarea 
+                            value={editData.comment} 
+                            onChange={e => setEditData({...editData, comment: e.target.value})}
+                            style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px', height:'50px'}}
+                        />
+
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar Alumnos (Toque para agregar/quitar)</label>
+                        <div style={{maxHeight:'100px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
+                            {studentsList.map(s => {
+                                const isSelected = editData.studentIds.includes(s.id);
+                                return (
+                                    <div 
+                                        key={s.id} 
+                                        onClick={() => {
+                                            const newIds = isSelected 
+                                                ? editData.studentIds.filter(id => id !== s.id)
+                                                : [...editData.studentIds, s.id];
+                                            setEditData({...editData, studentIds: newIds});
+                                        }}
+                                        style={{padding:'5px', fontSize:'12px', display:'flex', alignItems:'center', gap:'5px', cursor:'pointer', background: isSelected ? '#eff6ff' : 'white'}}
+                                    >
+                                        {isSelected ? <Check size={14} color="blue"/> : <div style={{width:14}}/>}
+                                        {s.name}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                        
+                        <button onClick={handleUpdate} style={{marginTop:'10px', padding:'12px', background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold'}}>
+                            Guardar Cambios
                         </button>
                     </div>
-                 </div>
-             )}
-          </div>
+                )}
+            </div>
         </div>
       )}
-      <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
     </div>
   );
 }
