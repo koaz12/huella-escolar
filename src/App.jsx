@@ -2,28 +2,42 @@
 import { useState, useEffect } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Toaster } from 'react-hot-toast'; 
-import { Camera, Users, Image as ImageIcon, LogOut } from 'lucide-react'; 
+import { Toaster, toast } from 'react-hot-toast'; 
+import { Camera, Users, Image as ImageIcon, LogOut, WifiOff } from 'lucide-react'; // <--- Agregamos WifiOff
 
 import { Login } from './components/Login';
 import { CaptureForm } from './components/CaptureForm';
 import { SyncStatus } from './components/SyncStatus';
 import { StudentForm } from './components/StudentForm';
 import { EvidenceList } from './components/EvidenceList';
-// 1. IMPORTAMOS EL NUEVO COMPONENTE
-import { OfflineIndicator } from './components/OfflineIndicator';
+// YA NO IMPORTAMOS OfflineIndicator
 
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('capture'); 
   const [loading, setLoading] = useState(true);
+  
+  // NUEVO: Estado para controlar la conexión aquí mismo
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    // Lógica de conexión
+    const handleOnline = () => { setIsOnline(true); toast.success("Conexión recuperada"); };
+    const handleOffline = () => { setIsOnline(false); toast.error("Modo Offline"); };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   const handleLogout = () => { if(confirm("¿Cerrar sesión?")) signOut(auth); };
@@ -40,10 +54,8 @@ function App() {
       backgroundColor: '#f4f6f8'
     }}>
       
+      {/* Notificaciones arriba para que no tapen el menú */}
       <Toaster position="top-center" />
-      
-      {/* 2. AQUÍ VA EL INDICADOR (Se mostrará solo si se va el internet) */}
-      <OfflineIndicator />
 
       {/* --- 1. HEADER (Fijo) --- */}
       <div style={{ 
@@ -56,9 +68,27 @@ function App() {
         borderBottom: '1px solid #e1e4e8',
         zIndex: 10
       }}>
-        <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
-          🏃‍♂️ Huella Escolar
-        </h2>
+        <div style={{display: 'flex', flexDirection: 'column'}}>
+            <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
+              🏃‍♂️ Huella Escolar
+            </h2>
+            
+            {/* AQUI ESTA LA SOLUCION: El aviso va DENTRO del header */}
+            {!isOnline && (
+                <span style={{
+                    fontSize: '10px', 
+                    color: '#ef4444', 
+                    fontWeight: 'bold', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px',
+                    marginTop: '2px'
+                }}>
+                    <WifiOff size={10} /> MODO OFFLINE
+                </span>
+            )}
+        </div>
+
         <button onClick={handleLogout} style={{background:'transparent', border:'none', padding:'5px'}}>
           <LogOut size={20} color="#666" />
         </button>
