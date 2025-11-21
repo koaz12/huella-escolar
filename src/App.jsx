@@ -2,22 +2,19 @@
 import { useState, useEffect } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Toaster, toast } from 'react-hot-toast'; 
-import { Camera, Users, Image as ImageIcon, LogOut, WifiOff } from 'lucide-react'; // <--- Agregamos WifiOff
+import { Toaster } from 'react-hot-toast'; 
+import { Camera, Users, Image as ImageIcon, LogOut, WifiOff, CloudOff } from 'lucide-react'; 
 
 import { Login } from './components/Login';
 import { CaptureForm } from './components/CaptureForm';
 import { SyncStatus } from './components/SyncStatus';
 import { StudentForm } from './components/StudentForm';
 import { EvidenceList } from './components/EvidenceList';
-// YA NO IMPORTAMOS OfflineIndicator
 
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('capture'); 
   const [loading, setLoading] = useState(true);
-  
-  // NUEVO: Estado para controlar la conexión aquí mismo
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
@@ -26,17 +23,15 @@ function App() {
       setLoading(false);
     });
 
-    // Lógica de conexión
-    const handleOnline = () => { setIsOnline(true); toast.success("Conexión recuperada"); };
-    const handleOffline = () => { setIsOnline(false); toast.error("Modo Offline"); };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    // Detectar cambios de red
+    const handleStatusChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleStatusChange);
+    window.addEventListener('offline', handleStatusChange);
 
     return () => {
       unsubscribe();
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleStatusChange);
+      window.removeEventListener('offline', handleStatusChange);
     };
   }, []);
 
@@ -54,7 +49,6 @@ function App() {
       backgroundColor: '#f4f6f8'
     }}>
       
-      {/* Notificaciones arriba para que no tapen el menú */}
       <Toaster position="top-center" />
 
       {/* --- 1. HEADER (Fijo) --- */}
@@ -68,33 +62,37 @@ function App() {
         borderBottom: '1px solid #e1e4e8',
         zIndex: 10
       }}>
-        <div style={{display: 'flex', flexDirection: 'column'}}>
-            <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
-              🏃‍♂️ Huella Escolar
-            </h2>
-            
-            {/* AQUI ESTA LA SOLUCION: El aviso va DENTRO del header */}
-            {!isOnline && (
-                <span style={{
-                    fontSize: '10px', 
-                    color: '#ef4444', 
-                    fontWeight: 'bold', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px',
-                    marginTop: '2px'
-                }}>
-                    <WifiOff size={10} /> MODO OFFLINE
-                </span>
-            )}
-        </div>
-
+        <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
+          🏃‍♂️ Huella Escolar
+        </h2>
         <button onClick={handleLogout} style={{background:'transparent', border:'none', padding:'5px'}}>
           <LogOut size={20} color="#666" />
         </button>
       </div>
 
-      {/* --- 2. ÁREA DE CONTENIDO (Scrollable) --- */}
+      {/* --- 2. BARRA DE NOTIFICACIÓN OFFLINE (ESTILO WHATSAPP) --- */}
+      {/* Esta barra aparece ENTRE el header y el contenido. No flota, ocupa espacio real. */}
+      {!isOnline && (
+        <div style={{
+          backgroundColor: '#ef4444', // Rojo
+          color: 'white',
+          padding: '8px',
+          textAlign: 'center',
+          fontSize: '13px',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          flexShrink: 0, // Evita que se aplaste
+          animation: 'slideDown 0.3s ease-out'
+        }}>
+          <CloudOff size={16} />
+          <span>Estás Offline. Guardando en el celular.</span>
+        </div>
+      )}
+
+      {/* --- 3. ÁREA DE CONTENIDO (Scrollable) --- */}
       <div style={{ 
         flex: 1, 
         overflowY: 'auto', 
@@ -102,7 +100,10 @@ function App() {
         paddingBottom: '20px' 
       }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-          <SyncStatus /> 
+          
+          {/* Si estamos offline, ocultamos el status de sincronización normal para no redundar */}
+          {isOnline && <SyncStatus />} 
+          
           <div key={view} style={{ animation: 'fadeIn 0.2s ease-in' }}>
             {view === 'capture' && <CaptureForm />}
             {view === 'students' && <StudentForm />}
@@ -111,7 +112,7 @@ function App() {
         </div>
       </div>
 
-      {/* --- 3. BARRA INFERIOR (Fija) --- */}
+      {/* --- 4. BARRA INFERIOR (Fija) --- */}
       <div style={{ 
         flexShrink: 0,
         backgroundColor: 'white', 
@@ -129,6 +130,7 @@ function App() {
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideDown { from { height: 0; opacity: 0; } to { height: auto; opacity: 1; } }
       `}</style>
     </div>
   );
