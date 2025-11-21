@@ -10,6 +10,8 @@ import { CaptureForm } from './components/CaptureForm';
 import { SyncStatus } from './components/SyncStatus';
 import { StudentForm } from './components/StudentForm';
 import { EvidenceList } from './components/EvidenceList';
+// 1. IMPORTAMOS EL NUEVO COMPONENTE
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -30,20 +32,22 @@ function App() {
   if (!user) return <Login />;
 
   return (
-    // CONTENEDOR PRINCIPAL: Ocupa exactamente el 100% de la pantalla del celular
     <div style={{ 
-      height: '100dvh', // 'dvh' se adapta a las barras del navegador móvil
+      height: '100dvh', 
       display: 'flex', 
       flexDirection: 'column',
-      overflow: 'hidden', // Evita scroll en el contenedor principal
+      overflow: 'hidden', 
       backgroundColor: '#f4f6f8'
     }}>
       
       <Toaster position="top-center" />
+      
+      {/* 2. AQUÍ VA EL INDICADOR (Se mostrará solo si se va el internet) */}
+      <OfflineIndicator />
 
       {/* --- 1. HEADER (Fijo) --- */}
       <div style={{ 
-        flexShrink: 0, // No se encoge
+        flexShrink: 0, 
         backgroundColor: 'white', 
         padding: '12px 15px', 
         display: 'flex', 
@@ -62,14 +66,13 @@ function App() {
 
       {/* --- 2. ÁREA DE CONTENIDO (Scrollable) --- */}
       <div style={{ 
-        flex: 1, // Toma todo el espacio disponible
-        overflowY: 'auto', // Solo esto hace scroll
+        flex: 1, 
+        overflowY: 'auto', 
         padding: '15px',
-        paddingBottom: '20px' // Un poco de aire al final
+        paddingBottom: '20px' 
       }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
           <SyncStatus /> 
-          {/* Animación suave al cambiar de pestaña */}
           <div key={view} style={{ animation: 'fadeIn 0.2s ease-in' }}>
             {view === 'capture' && <CaptureForm />}
             {view === 'students' && <StudentForm />}
@@ -86,7 +89,7 @@ function App() {
         display: 'flex', 
         justifyContent: 'space-around',
         padding: '8px 0',
-        paddingBottom: 'safe-area-inset-bottom', // Para iPhone X+
+        paddingBottom: 'safe-area-inset-bottom',
         zIndex: 100
       }}>
           <NavButton icon={<Camera size={24} />} label="Captura" active={view==='capture'} onClick={() => setView('capture')} />
@@ -94,7 +97,6 @@ function App() {
           <NavButton icon={<Users size={24} />} label="Alumnos" active={view==='students'} onClick={() => setView('students')} />
       </div>
 
-      {/* Estilos globales para animación */}
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
