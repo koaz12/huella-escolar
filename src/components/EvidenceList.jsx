@@ -1,391 +1,378 @@
-// src/components/StudentForm.jsx
+// src/components/EvidenceList.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
+import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
 import { 
-  collection, addDoc, updateDoc, deleteDoc, doc, 
-  query, onSnapshot, where, getDocs, writeBatch 
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import * as XLSX from 'xlsx';
+  Trash2, Search, X, PlayCircle, Folder, ArrowLeft, 
+  Edit2, Filter, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
+  Film 
+} from 'lucide-react';
 import toast from 'react-hot-toast';
-import { UserPlus, Edit2, Trash2, FileSpreadsheet, Download, X, Save, Search, Filter, Calendar, Hash, User } from 'lucide-react';
+import { Skeleton } from './Skeleton';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
-export function StudentForm() {
-  // --- ESTADOS ---
-  const [formData, setFormData] = useState({ 
-    name: '', 
-    studentId: '', 
-    level: 'Primaria', 
-    shift: 'Matutina', 
-    grade: '4to', 
-    section: 'A', 
-    listNumber: '', 
-    birthDate: '' 
-  });
-  
-  const [photoFile, setPhotoFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [myStudents, setMyStudents] = useState([]);
-  
-  // Filtros de VISTA (Para buscar en la lista)
-  const [viewFilters, setViewFilters] = useState({
-      level: 'Todos',
-      shift: 'Todos',
-      grade: 'Todos',
-      section: 'Todos'
-  });
+export function EvidenceList() {
+  // --- ESTADOS DE DATOS ---
+  const [evidences, setEvidences] = useState([]);
+  const [studentsMap, setStudentsMap] = useState({});
+  const [studentsList, setStudentsList] = useState([]); 
+  const [loading, setLoading] = useState(true);
+
+  // --- ESTADOS DE VISTA Y FILTROS PRINCIPALES ---
+  const [filterActivity, setFilterActivity] = useState(null);
+  const [filterStudent, setFilterStudent] = useState(''); 
   const [searchTerm, setSearchTerm] = useState('');
+  const [showStats, setShowStats] = useState(false);
 
-  // Estados para Excel
-  const [showExcel, setShowExcel] = useState(false);
-  const [excelPreview, setExcelPreview] = useState([]);
-  const [bulkConfig, setBulkConfig] = useState({ level: 'Primaria', shift: 'Matutina', grade: '4to', section: 'A' });
+  // --- ESTADOS DE INTERACCIÓN ---
+  const [inspectorItem, setInspectorItem] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  
+  const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [] });
 
-  // --- 1. CARGA DE DATOS ---
+  // --- FILTROS PARA EL MODAL DE EDICIÓN ---
+  const [modalFilters, setModalFilters] = useState({
+      grade: 'Todos',
+      section: 'Todos',
+      level: 'Todos',
+      shift: 'Todos'
+  });
+
+  // 1. CARGA INICIAL
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
-        
-        const unsubscribeSnapshot = onSnapshot(q, (qs) => {
-          const arr = [];
-          qs.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-          // Ordenar: Grado -> Sección -> Número de lista
-          arr.sort((a, b) => {
-            if (a.grade !== b.grade) return a.grade.localeCompare(b.grade);
-            if (a.section !== b.section) return a.section.localeCompare(b.section);
-            return (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0);
+        // A) Cargar Evidencias
+        const qEv = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
+        const unsubEv = onSnapshot(qEv, (snapshot) => {
+          const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          docs.sort((a, b) => {
+             if (a.isFavorite && !b.isFavorite) return -1;
+             if (!a.isFavorite && b.isFavorite) return 1;
+             return (b.date?.seconds || 0) - (a.date?.seconds || 0);
           });
-          setMyStudents(arr);
+          setEvidences(docs);
+          setLoading(false);
         });
-        return () => unsubscribeSnapshot();
-      } else {
-        setMyStudents([]);
+
+        // B) Cargar Alumnos
+        const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
+        const unsubStu = onSnapshot(qStu, (qs) => {
+           const map = {};
+           const list = [];
+           qs.forEach(d => {
+               const data = d.data();
+               map[d.id] = data.name; 
+               list.push({ 
+                   id: d.id, 
+                   name: data.name,
+                   grade: data.grade || '',
+                   section: data.section || '',
+                   level: data.level || '',
+                   shift: data.shift || ''
+               });
+           });
+           setStudentsMap(map);
+           setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
+        });
+
+        return () => { unsubEv(); unsubStu(); };
       }
     });
     return () => unsubscribeAuth();
   }, []);
 
-  // --- 2. AUTOCOMPLETADO INTELIGENTE (# LISTA) ---
-  // Cada vez que cambie el Grado o Sección en el FORMULARIO, calculamos el siguiente número
-  useEffect(() => {
-      if (editingId) return; // Si editamos, no tocar el número
+  // --- CÁLCULOS ---
+  const getMissingStudents = () => {
+      if (studentsList.length === 0) return [];
+      const seenIds = new Set();
+      evidences.forEach(ev => {
+          if (ev.studentIds && Array.isArray(ev.studentIds)) ev.studentIds.forEach(id => seenIds.add(id));
+      });
+      return studentsList.filter(s => !seenIds.has(s.id));
+  };
+  const missingStudents = getMissingStudents();
+  const coveragePercent = studentsList.length > 0 ? Math.round(((studentsList.length - missingStudents.length) / studentsList.length) * 100) : 0;
 
-      // Filtramos los alumnos que ya tengo en ese curso
-      const existing = myStudents.filter(s => s.grade === formData.grade && s.section === formData.section);
-      
-      if (existing.length > 0) {
-          // Buscar el número más alto
-          const maxNum = Math.max(...existing.map(s => Number(s.listNumber) || 0));
-          setFormData(prev => ({ ...prev, listNumber: maxNum + 1 }));
-      } else {
-          setFormData(prev => ({ ...prev, listNumber: 1 }));
-      }
-  }, [formData.grade, formData.section, myStudents, editingId]);
+  // --- LÓGICA DE FILTRADO ---
+  const getFilteredEvidences = () => {
+    return evidences.filter(item => {
+      const matchesText = item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesActivity = filterActivity ? item.activityName === filterActivity : true;
+      const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
+      return matchesText && matchesActivity && matchesStudent;
+    });
+  };
+  const filteredItems = getFilteredEvidences();
+  const folders = {};
+  if (!filterStudent) {
+      filteredItems.forEach(item => {
+        const name = item.activityName || "Sin Nombre";
+        if (!folders[name]) folders[name] = [];
+        folders[name].push(item);
+      });
+  }
 
-
-  // --- VALIDACIONES Y GUARDADO ---
-  const checkDuplicateId = async (studentId) => {
-    if (!studentId) return false;
-    const q = query(collection(db, "students"), where("teacherId", "==", auth.currentUser.uid), where("studentId", "==", studentId));
-    const snapshot = await getDocs(q);
-    if (editingId && snapshot.docs.length > 0) {
-        if (snapshot.docs[0].id === editingId) return false; 
-    }
-    return !snapshot.empty; 
+  // --- FILTRADO EN MODAL ---
+  const getStudentsForEdit = () => {
+      return studentsList.filter(s => {
+          const matchGrade = modalFilters.grade === 'Todos' || s.grade === modalFilters.grade;
+          const matchSection = modalFilters.section === 'Todos' || s.section === modalFilters.section;
+          const matchLevel = modalFilters.level === 'Todos' || s.level === modalFilters.level;
+          const matchShift = modalFilters.shift === 'Todos' || s.shift === modalFilters.shift;
+          return matchGrade && matchSection && matchLevel && matchShift;
+      });
   };
 
-  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
-  const handleFileChange = (e) => { if (e.target.files[0]) setPhotoFile(e.target.files[0]); };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!auth.currentUser) return toast.error("Inicia sesión");
-    
-    // VALIDACIÓN DE REGLAS DE NEGOCIO
-    if (Number(formData.listNumber) < 1) return toast.error("El número de lista debe ser 1 o mayor");
-    
-    setLoading(true);
-    const toastId = toast.loading("Procesando...");
-
+  // --- ACCIONES ---
+  const handleDelete = async () => {
+    if (!confirm("¿Borrar esta evidencia definitivamente?")) return;
     try {
-      if (formData.studentId) {
-          const isDuplicate = await checkDuplicateId(formData.studentId);
-          if (isDuplicate) {
-              toast.error(`⛔ El ID "${formData.studentId}" ya existe.`, { id: toastId });
-              setLoading(false);
-              return;
-          }
-      }
-
-      let photoUrl = formData.photoUrl || '';
-      if (photoFile) {
-        const storageRef = ref(storage, `perfiles_alumnos/${auth.currentUser.uid}/${Date.now()}_${photoFile.name}`);
-        const snapshot = await uploadBytes(storageRef, photoFile);
-        photoUrl = await getDownloadURL(snapshot.ref);
-      }
-
-      const dataToSave = {
-        ...formData,
-        listNumber: Number(formData.listNumber),
-        photoUrl,
-        teacherId: auth.currentUser.uid, 
-        updatedAt: new Date()
-      };
-
-      if (editingId) {
-        await updateDoc(doc(db, "students", editingId), dataToSave);
-        toast.success("Alumno actualizado", { id: toastId });
-        setEditingId(null);
-      } else {
-        await addDoc(collection(db, "students"), { ...dataToSave, createdAt: new Date() });
-        toast.success(`Alumno #${dataToSave.listNumber} creado`, { id: toastId });
-      }
-
-      // Resetear form (Manteniendo el grado/sección actual para meter otro rápido)
-      setFormData(prev => ({ 
-          ...prev, 
-          name: '', studentId: '', birthDate: '', 
-          // listNumber se recalculará solo por el useEffect
-      }));
-      setPhotoFile(null);
-      document.getElementById('photoInput').value = "";
-
-    } catch (error) { 
-        console.error(error);
-        toast.error(`Error: ${error.message}`, { id: toastId }); 
-    } finally { 
-        setLoading(false); 
-    }
+      const fileRef = ref(storage, inspectorItem.fileUrl);
+      await deleteObject(fileRef).catch(() => {});
+      await deleteDoc(doc(db, "evidence", inspectorItem.id));
+      setInspectorItem(null);
+      toast.success("Evidencia eliminada");
+    } catch (error) { toast.error("Error borrando"); }
   };
 
-  // --- EXCEL ---
-  const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{ Nombre: "Juan Perez", ID: "1001", Numero: 1 }, { Nombre: "Maria Lopez", ID: "1002", Numero: 2 }]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Plantilla");
-    XLSX.writeFile(wb, "Plantilla_Alumnos.xlsx");
+  const toggleFavorite = async (item, e) => {
+    e?.stopPropagation(); 
+    try {
+        await updateDoc(doc(db, "evidence", item.id), { isFavorite: !item.isFavorite });
+        if(inspectorItem?.id === item.id) setInspectorItem(prev => ({...prev, isFavorite: !prev.isFavorite}));
+        toast.success(item.isFavorite ? "Quitado de favoritos" : "Agregado a favoritos ⭐", {duration: 1000});
+    } catch (e) { console.error(e); }
   };
-  const handleExcelRead = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-      setExcelPreview(data);
-      toast.success(`${data.length} filas detectadas.`);
-    };
-    reader.readAsBinaryString(file);
-  };
-  const saveExcelData = async () => { /* (Mismo código anterior de Excel) */ 
-      if (!auth.currentUser) return;
-      setLoading(true);
-      try {
-        const batch = writeBatch(db);
-        excelPreview.forEach((row) => {
-          const docRef = doc(collection(db, "students"));
-          batch.set(docRef, {
-            name: row.Nombre || row.name || "Sin Nombre",
-            studentId: String(row.ID || row.studentId || ""),
-            listNumber: Number(row.Numero || row.listNumber || 0),
-            grade: bulkConfig.grade, section: bulkConfig.section, level: bulkConfig.level, shift: bulkConfig.shift,
-            teacherId: auth.currentUser.uid, createdAt: new Date(), photoUrl: ''
-          });
+
+  const handleUpdate = async () => {
+    const toastId = toast.loading("Guardando cambios...");
+    try {
+        await updateDoc(doc(db, "evidence", inspectorItem.id), {
+            activityName: editData.activityName,
+            comment: editData.comment,
+            studentIds: editData.studentIds
         });
-        await batch.commit();
-        toast.success("Carga masiva completada");
-        setExcelPreview([]); setShowExcel(false);
-      } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+        setInspectorItem(prev => ({...prev, ...editData}));
+        setIsEditing(false);
+        toast.success("Actualizado", {id: toastId});
+    } catch (e) { toast.error("Error al guardar", {id: toastId}); }
   };
 
-  const handleEdit = (s) => { 
-    setFormData({
-        name: s.name, studentId: s.studentId || '', 
-        level: s.level || 'Primaria', shift: s.shift || 'Matutina',
-        grade: s.grade, section: s.section, listNumber: s.listNumber, 
-        birthDate: s.birthDate || '', photoUrl: s.photoUrl
-    }); 
-    setEditingId(s.id); setShowExcel(false); window.scrollTo({top:0, behavior:'smooth'}); 
+  const downloadFolderZip = async () => {
+    if (filteredItems.length === 0) return;
+    setIsDownloading(true);
+    const toastId = toast.loading(`Empaquetando ${filteredItems.length} archivos...`);
+    const zip = new JSZip();
+    try {
+        const promises = filteredItems.map(async (item, index) => {
+            const response = await fetch(item.fileUrl);
+            const blob = await response.blob();
+            const ext = item.fileUrl.includes('.mp4') ? 'mp4' : 'jpg';
+            const fileName = `${index+1}_${item.activityName}.${ext}`;
+            zip.file(fileName, blob);
+        });
+        await Promise.all(promises);
+        const content = await zip.generateAsync({type:"blob"});
+        const zipName = filterActivity ? `${filterActivity}.zip` : `Evidencias.zip`;
+        saveAs(content, zipName);
+        toast.success("¡Descarga lista!", {id: toastId});
+    } catch (error) {
+        console.error(error);
+        toast.error("Error descarga. Intenta menos archivos.", {id: toastId});
+    } finally { setIsDownloading(false); }
   };
 
-  const handleDelete = async (id) => { 
-    if(confirm("¿Seguro que deseas borrar este alumno?")) {
-        try { await deleteDoc(doc(db,"students",id)); toast.success("Borrado"); } 
-        catch(e) { toast.error(e.message); }
-    }
-  };
-
-  // --- FILTRADO DE VISTA ---
-  const filteredStudents = myStudents.filter(s => {
-      // 1. Filtro Texto
-      const matchText = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.studentId && s.studentId.includes(searchTerm));
-      // 2. Filtros Selectores
-      const matchLevel = viewFilters.level === 'Todos' || s.level === viewFilters.level;
-      const matchShift = viewFilters.shift === 'Todos' || s.shift === viewFilters.shift;
-      const matchGrade = viewFilters.grade === 'Todos' || s.grade === viewFilters.grade;
-      const matchSection = viewFilters.section === 'Todos' || s.section === viewFilters.section;
-
-      return matchText && matchLevel && matchShift && matchGrade && matchSection;
-  });
+  if (loading) return <div style={{paddingBottom:'20px'}}><Skeleton height="50px" style={{marginBottom:'10px'}}/><Skeleton height="200px"/></div>;
 
   return (
-    <div style={{ paddingBottom: '80px' }}>
+    <div style={{ paddingBottom: '20px' }}>
       
-      {/* HEADER ACCIONES */}
-      <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
-        <button onClick={() => {setShowExcel(!showExcel); setEditingId(null);}} style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px', background: showExcel ? '#ef4444':'#10b981', border: 'none', borderRadius: '8px', color: 'white', fontWeight: '600', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'}}>
-          {showExcel ? <X size={18}/> : <FileSpreadsheet size={18}/>} {showExcel ? 'Cancelar' : 'Carga Masiva'}
-        </button>
-      </div>
+      {/* 1. BARRA DE HERRAMIENTAS */}
+      <div style={{background:'white', padding:'10px', borderRadius:'12px', marginBottom:'15px', border:'1px solid #e2e8f0', display:'flex', flexDirection:'column', gap:'10px'}}>
+         <div style={{display:'flex', gap:'10px'}}>
+             <div style={{position:'relative', flex:1}}>
+                 <Search size={16} style={{position:'absolute', left:'10px', top:'10px', color:'#9ca3af'}}/>
+                 <input placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'8px 8px 8px 32px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'13px'}}/>
+             </div>
+             <select value={filterStudent} onChange={e => { setFilterStudent(e.target.value); setFilterActivity(null); }} style={{maxWidth:'120px', padding:'8px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'12px', background: filterStudent ? '#eff6ff' : 'white'}}>
+                 <option value="">👤 Portafolio...</option>
+                 {studentsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+             </select>
+         </div>
 
-      {/* MÓDULO EXCEL (Resumido visualmente) */}
-      {showExcel && (
-        <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', border: '2px solid #10b981'}}>
-           {/* ... (Tu lógica de excel existente, para ahorrar espacio visual aquí) ... */}
-           <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-              <button onClick={downloadTemplate} style={{...btnSecondaryStyle, flex:1}}><Download size={16}/> Plantilla</button>
-              <label style={{...btnSecondaryStyle, flex:1, background: '#3b82f6', color: 'white', cursor: 'pointer'}}><FileSpreadsheet size={16}/> Subir .xlsx<input type="file" accept=".xlsx, .xls" hidden onChange={handleExcelRead} /></label>
-           </div>
-           {excelPreview.length > 0 && <button onClick={saveExcelData} disabled={loading} style={{width: '100%', padding: '10px', background: '#059669', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold'}}>Guardar {excelPreview.length} alumnos</button>}
-        </div>
-      )}
+         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+             <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'14px', fontWeight:'bold', color:'#333'}}>
+                 {filterStudent ? (<>👤 Portafolio: <span style={{color:'#3b82f6'}}>{studentsMap[filterStudent]}</span></>) : filterActivity ? (<><button onClick={()=>setFilterActivity(null)} style={{background:'none', border:'none', cursor:'pointer'}}><ArrowLeft size={16}/></button> 📂 {filterActivity}</>) : (<>📂 Todas las Carpetas</>)}
+             </div>
+             
+             <div style={{display:'flex', gap:'5px'}}>
+                 {(filterActivity || filterStudent) && (
+                     <button onClick={downloadFolderZip} disabled={isDownloading} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background:'#10b981', color:'white', border:'none', borderRadius:'20px'}}>
+                         <Download size={12}/> ZIP
+                     </button>
+                 )}
+                 <button onClick={()=>setShowStats(!showStats)} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background: showStats ? '#f59e0b' : '#f3f4f6', color: showStats ? 'white' : '#444', border:'none', borderRadius:'20px'}}>
+                     <PieChart size={12}/> Progreso
+                 </button>
+             </div>
+         </div>
 
-      {/* FORMULARIO DE CREACIÓN/EDICIÓN */}
-      {!showExcel && (
-        <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
-           <h3 style={{marginTop:0, display:'flex', alignItems:'center', gap:'8px', fontSize:'16px'}}>
-             {editingId ? <Edit2 size={18} color="#f59e0b"/> : <UserPlus size={18} color="#3b82f6"/>}
-             {editingId ? 'Editar Datos' : 'Registrar Alumno'}
-           </h3>
-           
-           <form onSubmit={handleSubmit} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              {/* Fila 1: Nombre y ID */}
-              <div style={{display:'flex', gap:'8px'}}>
-                  <input name="name" placeholder="Nombre Completo" value={formData.name} onChange={handleChange} required style={{...inputStyle, flex:2}}/>
-                  <input name="studentId" placeholder="ID / Matrícula" value={formData.studentId} onChange={handleChange} style={{...inputStyle, flex:1}}/>
-              </div>
-
-              {/* Fila 2: Nivel y Tanda (NUEVO) */}
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Nivel</label>
-                      <select name="level" value={formData.level} onChange={handleChange} style={inputStyle}><option>Primaria</option><option>Secundaria</option></select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Tanda</label>
-                      <select name="shift" value={formData.shift} onChange={handleChange} style={inputStyle}><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
-                  </div>
-              </div>
-              
-              {/* Fila 3: Grado, Sección, Numero */}
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px'}}>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Grado</label>
-                      <select name="grade" value={formData.grade} onChange={handleChange} style={inputStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Sección</label>
-                      <select name="section" value={formData.section} onChange={handleChange} style={inputStyle}>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}># Lista</label>
-                      <input name="listNumber" type="number" min="1" placeholder="#" value={formData.listNumber} onChange={handleChange} style={inputStyle}/>
-                  </div>
-              </div>
-
-              {/* Fila 4: Fecha Nacimiento y Foto (NUEVO) */}
-              <div style={{display:'flex', gap:'8px', alignItems:'end'}}>
-                  <div style={{flex:1, position:'relative'}}>
-                      <label style={labelStyle}>Fecha Nac.</label>
-                      <input type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} style={inputStyle} />
-                  </div>
-                  <div style={{flex:1}}>
-                      <input id="photoInput" type="file" accept="image/*" onChange={handleFileChange} style={{fontSize: '10px'}}/>
-                  </div>
-              </div>
-
-              <div style={{display: 'flex', gap: '10px', marginTop:'5px'}}>
-                  {editingId && <button type="button" onClick={()=>{setEditingId(null); setFormData({name:'', studentId:'', level:'Primaria', shift:'Matutina', grade:'4to', section:'A', listNumber:'', birthDate:''});}} style={{padding:'10px', background:'#9ca3af', color:'white', border:'none', borderRadius:'8px', flex: 1}}>Cancelar</button>}
-                  <button type="submit" disabled={loading} style={{padding:'10px', background: editingId?'#f59e0b':'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold', flex: 2}}>
-                      {loading ? 'Guardando...' : (editingId ? 'Actualizar Alumno' : 'Guardar Alumno')}
-                  </button>
-              </div>
-           </form>
-        </div>
-      )}
-
-      {/* BARRA DE FILTROS DE VISTA (SUPERIOR) */}
-      <div style={{background:'#f8fafc', padding:'10px', borderRadius:'8px', border:'1px solid #e2e8f0', marginBottom:'15px'}}>
-          <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', marginBottom:'5px', display:'flex', alignItems:'center', gap:'5px'}}><Filter size={12}/> Filtrar Lista:</div>
-          
-          {/* Fila de Selectores */}
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'5px', marginBottom:'8px'}}>
-              <select value={viewFilters.level} onChange={e=>setViewFilters({...viewFilters, level:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
-              <select value={viewFilters.shift} onChange={e=>setViewFilters({...viewFilters, shift:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
-              <select value={viewFilters.grade} onChange={e=>setViewFilters({...viewFilters, grade:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-              <select value={viewFilters.section} onChange={e=>setViewFilters({...viewFilters, section:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
-          </div>
-          
-          {/* Buscador Texto */}
-          <div style={{position:'relative'}}>
-              <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
-              <input placeholder="Buscar por nombre o ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'6px 6px 6px 28px', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'13px', boxSizing:'border-box'}}/>
-          </div>
-      </div>
-
-      {/* LISTA DE ALUMNOS (DISEÑO TARJETA) */}
-      <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
-         <div style={{fontSize:'12px', color:'#666', textAlign:'right'}}>{filteredStudents.length} alumnos encontrados</div>
-         
-         {filteredStudents.length === 0 ? <p style={{textAlign: 'center', color: '#999', padding:'20px'}}>No hay resultados.</p> : 
-             filteredStudents.map(s => (
-               <div key={s.id} style={{padding:'10px', background:'white', borderRadius:'8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', borderLeft: `4px solid ${s.photoUrl ? '#10b981' : '#cbd5e1'}`}}>
-                  
-                  <div style={{display:'flex', gap:'12px', alignItems:'center'}}>
-                     {/* FOTO O AVATAR */}
-                     <div style={{position:'relative'}}>
-                         {s.photoUrl ? (
-                             <img src={s.photoUrl} style={{width:'45px', height:'45px', borderRadius:'50%', objectFit:'cover', border:'1px solid #eee'}}/>
-                         ) : (
-                             <div style={{width:'45px', height:'45px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}>
-                                 <User size={20} color="#94a3b8"/>
-                             </div>
-                         )}
-                         <div style={{position:'absolute', bottom:'-2px', right:'-2px', background:'#3b82f6', color:'white', width:'18px', height:'18px', borderRadius:'50%', fontSize:'10px', display:'grid', placeItems:'center', fontWeight:'bold'}}>
-                             {s.listNumber}
+         {/* PANEL ESTADÍSTICAS */}
+         {showStats && (
+             <div style={{marginTop:'5px', paddingTop:'10px', borderTop:'1px dashed #e2e8f0', animation:'fadeIn 0.3s'}}>
+                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5px'}}>
+                     <span style={{fontSize:'12px', fontWeight:'bold', color:'#555'}}>Cobertura del Curso: {coveragePercent}%</span>
+                     <span style={{fontSize:'12px', color:'#888'}}>{studentsList.length - missingStudents.length}/{studentsList.length} alumnos</span>
+                 </div>
+                 <div style={{width:'100%', height:'8px', background:'#e2e8f0', borderRadius:'4px', overflow:'hidden', marginBottom:'10px'}}>
+                     <div style={{width:`${coveragePercent}%`, height:'100%', background: coveragePercent === 100 ? '#10b981' : coveragePercent > 50 ? '#f59e0b' : '#ef4444', transition:'width 0.5s'}}></div>
+                 </div>
+                 {missingStudents.length === 0 ? (
+                     <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#10b981', background:'#ecfdf5', padding:'8px', borderRadius:'6px'}}><CheckCircle size={14}/> Todos evaluados.</div>
+                 ) : (
+                     <div style={{fontSize:'12px'}}>
+                         <div style={{display:'flex', alignItems:'center', gap:'5px', color:'#b91c1c', marginBottom:'5px'}}><AlertTriangle size={14}/> <strong>Faltan evidencias de:</strong></div>
+                         <div style={{display:'flex', flexWrap:'wrap', gap:'5px', maxHeight:'80px', overflowY:'auto'}}>
+                             {missingStudents.map(s => <span key={s.id} style={{background:'#fee2e2', color:'#991b1b', padding:'2px 6px', borderRadius:'4px', border:'1px solid #fca5a5'}}>{s.name}</span>)}
                          </div>
                      </div>
-
-                     {/* INFO */}
-                     <div>
-                        <div style={{fontWeight: '600', color: '#333', fontSize:'15px'}}>{s.name}</div>
-                        <div style={{fontSize: '12px', color: '#666', display:'flex', gap:'5px', flexWrap:'wrap'}}>
-                           <span style={{background:'#eff6ff', color:'#1d4ed8', padding:'1px 4px', borderRadius:'4px'}}>{s.grade} {s.section}</span>
-                           <span>• {s.level === 'Primaria' ? 'Pri' : 'Sec'}</span>
-                           {s.studentId && <span style={{color:'#666'}}>• ID:{s.studentId}</span>}
-                        </div>
-                        {s.birthDate && <div style={{fontSize:'11px', color:'#999', display:'flex', alignItems:'center', gap:'3px'}}><Calendar size={10}/> {s.birthDate}</div>}
-                     </div>
-                  </div>
-
-                  {/* BOTONES */}
-                  <div style={{display: 'flex', gap: '5px'}}>
-                     <button onClick={() => handleEdit(s)} style={{background: '#fffbeb', border: '1px solid #fde68a', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Edit2 size={16} color="#d97706"/></button>
-                     <button onClick={() => handleDelete(s.id)} style={{background: '#fef2f2', border: '1px solid #fecaca', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Trash2 size={16} color="#dc2626"/></button>
-                  </div>
-               </div>
-             ))
-         }
+                 )}
+             </div>
+         )}
       </div>
+
+      {/* 2. VISTA CARPETAS */}
+      {!filterActivity && !filterStudent && (
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+              {Object.keys(folders).map(name => (
+                  <div key={name} onClick={() => setFilterActivity(name)} style={{background:'white', borderRadius:'10px', border:'1px solid #e2e8f0', padding:'10px', display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', boxShadow:'0 1px 2px rgba(0,0,0,0.05)'}}>
+                      <Folder size={24} color="#3b82f6" fill="#dbeafe"/>
+                      <div style={{overflow:'hidden'}}>
+                          <div style={{fontWeight:'600', fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{name}</div>
+                          <div style={{fontSize:'10px', color:'#666'}}>{folders[name].length} archivos</div>
+                      </div>
+                  </div>
+              ))}
+              {Object.keys(folders).length === 0 && <p style={{gridColumn:'span 2', textAlign:'center', color:'#999'}}>No hay evidencias.</p>}
+          </div>
+      )}
+
+      {/* 3. VISTA GRILLA */}
+      {(filterActivity || filterStudent) && (
+          <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'2px'}}>
+              {filteredItems.map(item => (
+                  <div key={item.id} onClick={() => { setInspectorItem(item); setIsEditing(false); }} style={{aspectRatio:'1/1', position:'relative', overflow:'hidden', background:'#f1f5f9'}}>
+                      {(item.fileUrl.includes('.mp4') || item.fileType === 'video') && <Film size={16} color="white" style={{position:'absolute', top:5, left:5, zIndex:2}}/>}
+                      {item.isFavorite && <Star size={16} color="#f59e0b" fill="#f59e0b" style={{position:'absolute', top:5, right:5, zIndex:2}}/>}
+                      {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
+                          <video src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                      ) : (
+                          <img src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                      )}
+                  </div>
+              ))}
+              {filteredItems.length === 0 && <p style={{gridColumn:'span 3', textAlign:'center', padding:'20px', color:'#999'}}>No se encontraron fotos.</p>}
+          </div>
+      )}
+
+      {/* 4. INSPECTOR / EDITOR */}
+      {inspectorItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
+            <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', color:'white'}}>
+                <button onClick={() => setInspectorItem(null)} style={{background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', padding:'8px', color:'white'}}><X size={20}/></button>
+                <div style={{display:'flex', gap:'15px'}}>
+                    <button onClick={(e) => toggleFavorite(inspectorItem, e)} style={{background:'none', border:'none', color:'white'}}>
+                        <Star size={24} fill={inspectorItem.isFavorite ? "#f59e0b" : "none"} color={inspectorItem.isFavorite ? "#f59e0b" : "white"}/>
+                    </button>
+                    <button onClick={() => {
+                        setEditData({ activityName: inspectorItem.activityName, comment: inspectorItem.comment || '', studentIds: inspectorItem.studentIds || [] });
+                        setIsEditing(!isEditing);
+                    }} style={{background: isEditing ? '#3b82f6' : 'none', border:'none', color:'white', borderRadius:'4px', padding:'2px'}}>
+                        <Edit2 size={24}/>
+                    </button>
+                </div>
+            </div>
+            
+            {/* VISOR */}
+            <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden'}}>
+                {inspectorItem.fileUrl.includes('.mp4') || inspectorItem.fileType === 'video' ? (
+                     <video src={inspectorItem.fileUrl} controls autoPlay style={{maxWidth:'100%', maxHeight:'100%'}} />
+                ) : (
+                     <img src={inspectorItem.fileUrl} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}} />
+                )}
+            </div>
+            
+            {/* PANEL INFO/EDICIÓN */}
+            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'45vh', overflowY:'auto'}}>
+                {!isEditing ? (
+                    <div style={{padding:'20px'}}>
+                        <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
+                        <p style={{fontSize:'12px', color:'#666', margin:0}}>{inspectorItem.date?.toDate().toLocaleString()}</p>
+                        <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'10px'}}>
+                            {inspectorItem.studentIds?.map(uid => (
+                                <span key={uid} style={{fontSize:'11px', background:'#eff6ff', color:'#1e40af', padding:'3px 8px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px'}}>
+                                    <User size={10}/> {studentsMap[uid] || 'Desconocido'}
+                                </span>
+                            ))}
+                        </div>
+                        {inspectorItem.comment && <div style={{marginTop:'15px', background:'#f8f9fa', padding:'10px', borderRadius:'8px', fontSize:'14px', fontStyle:'italic'}}>"{inspectorItem.comment}"</div>}
+                        <div style={{marginTop:'20px', display:'flex', justifyContent:'flex-end'}}>
+                             <button onClick={handleDelete} style={{color:'#ef4444', background:'none', border:'none', display:'flex', alignItems:'center', gap:'5px', fontSize:'12px'}}><Trash2 size={14}/> Eliminar</button>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{padding:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                        
+                        {/* FILTROS DE ALUMNOS (AHORA COMPLETOS) */}
+                        <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
+                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista de Alumnos:</div>
+                            {/* FILA 1: NIVEL Y TANDA (NUEVO) */}
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginBottom:'5px'}}>
+                                <select value={modalFilters.level} onChange={e=>setModalFilters({...modalFilters, level:e.target.value})} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
+                                <select value={modalFilters.shift} onChange={e=>setModalFilters({...modalFilters, shift:e.target.value})} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
+                            </div>
+                            {/* FILA 2: GRADO Y SECCIÓN */}
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
+                                <select value={modalFilters.grade} onChange={e=>setModalFilters({...modalFilters, grade:e.target.value})} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                                <select value={modalFilters.section} onChange={e=>setModalFilters({...modalFilters, section:e.target.value})} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
+                            </div>
+                        </div>
+
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar ({getStudentsForEdit().length} visibles)</label>
+                        <div style={{maxHeight:'120px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
+                            {getStudentsForEdit().length === 0 && <p style={{fontSize:'11px', color:'#999', textAlign:'center'}}>No hay alumnos con estos filtros.</p>}
+                            {getStudentsForEdit().map(s => {
+                                const isSelected = editData.studentIds.includes(s.id);
+                                return (
+                                    <div key={s.id} onClick={() => {
+                                        const newIds = isSelected ? editData.studentIds.filter(id => id !== s.id) : [...editData.studentIds, s.id];
+                                        setEditData({...editData, studentIds: newIds});
+                                    }} style={{padding:'6px', fontSize:'12px', display:'flex', alignItems:'center', gap:'5px', cursor:'pointer', background: isSelected ? '#eff6ff' : 'white', borderBottom:'1px solid #f9fafb'}}>
+                                        {isSelected ? <CheckCircle size={14} color="blue"/> : <div style={{width:14}}/>}
+                                        <span>{s.name} <small style={{color:'#999'}}>({s.grade} {s.section})</small></span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Nombre Actividad</label>
+                        <input value={editData.activityName} onChange={e => setEditData({...editData, activityName: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px'}}/>
+                        
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Comentario</label>
+                        <textarea value={editData.comment} onChange={e => setEditData({...editData, comment: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px', height:'40px'}}/>
+                        
+                        <button onClick={handleUpdate} style={{marginTop:'5px', padding:'12px', background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold'}}>Guardar Cambios</button>
+                    </div>
+                )}
+            </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ESTILOS
-const inputStyle = { padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize:'13px' };
-const filterSelectStyle = { padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', width:'100%' };
-const labelStyle = { fontSize: '10px', fontWeight: 'bold', color: '#6b7280', position:'absolute', top:'-6px', left:'5px', background:'white', padding:'0 2px' };
-const btnSecondaryStyle = { padding: '8px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center', fontSize:'12px' };
+const selectStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '11px' };
