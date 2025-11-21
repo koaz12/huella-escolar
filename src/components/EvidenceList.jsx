@@ -5,7 +5,8 @@ import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 
 import { ref, deleteObject } from 'firebase/storage';
 import { 
   Trash2, Search, X, PlayCircle, Folder, ArrowLeft, 
-  Edit2, Filter, Download, User, Star, PieChart, AlertTriangle, CheckCircle 
+  Edit2, Filter, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
+  Film // <--- ¡AQUÍ ESTABA EL ERROR! Ya lo importamos.
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Skeleton } from './Skeleton';
@@ -16,25 +17,36 @@ export function EvidenceList() {
   // --- ESTADOS DE DATOS ---
   const [evidences, setEvidences] = useState([]);
   const [studentsMap, setStudentsMap] = useState({});
-  const [studentsList, setStudentsList] = useState([]);
+  const [studentsList, setStudentsList] = useState([]); // Ahora guarda objetos completos {id, name, grade, section...}
   const [loading, setLoading] = useState(true);
 
-  // --- ESTADOS DE VISTA Y FILTROS ---
+  // --- ESTADOS DE VISTA Y FILTROS PRINCIPALES ---
   const [filterActivity, setFilterActivity] = useState(null);
   const [filterStudent, setFilterStudent] = useState(''); 
   const [searchTerm, setSearchTerm] = useState('');
-  const [showStats, setShowStats] = useState(false); // <--- NUEVO: MOSTRAR ESTADÍSTICAS
+  const [showStats, setShowStats] = useState(false);
 
   // --- ESTADOS DE INTERACCIÓN ---
   const [inspectorItem, setInspectorItem] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  
+  // Datos temporales para el formulario de edición
   const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [] });
+
+  // --- NUEVOS FILTROS PARA EL MODAL DE EDICIÓN ---
+  const [modalFilters, setModalFilters] = useState({
+      grade: 'Todos',
+      section: 'Todos',
+      level: 'Todos',
+      shift: 'Todos'
+  });
 
   // 1. CARGA INICIAL
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
+        // A) Cargar Evidencias
         const qEv = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
         const unsubEv = onSnapshot(qEv, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -47,6 +59,7 @@ export function EvidenceList() {
           setLoading(false);
         });
 
+        // B) Cargar Alumnos con todos sus datos
         const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubStu = onSnapshot(qStu, (qs) => {
            const map = {};
@@ -54,7 +67,15 @@ export function EvidenceList() {
            qs.forEach(d => {
                const data = d.data();
                map[d.id] = data.name; 
-               list.push({ id: d.id, name: data.name });
+               // Guardamos todos los datos para poder filtrar en el modal
+               list.push({ 
+                   id: d.id, 
+                   name: data.name,
+                   grade: data.grade || '',
+                   section: data.section || '',
+                   level: data.level || '',
+                   shift: data.shift || ''
+               });
            });
            setStudentsMap(map);
            setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
@@ -66,39 +87,29 @@ export function EvidenceList() {
     return () => unsubscribeAuth();
   }, []);
 
-  // --- CÁLCULOS DE ESTADÍSTICAS (RADAR) ---
+  // --- CÁLCULOS DE ESTADÍSTICAS ---
   const getMissingStudents = () => {
       if (studentsList.length === 0) return [];
-      
-      // 1. Recolectar todos los IDs que aparecen en AL MENOS UNA evidencia
       const seenIds = new Set();
       evidences.forEach(ev => {
           if (ev.studentIds && Array.isArray(ev.studentIds)) {
               ev.studentIds.forEach(id => seenIds.add(id));
           }
       });
-
-      // 2. Filtrar la lista total
       return studentsList.filter(s => !seenIds.has(s.id));
   };
-
   const missingStudents = getMissingStudents();
-  const coveragePercent = studentsList.length > 0 
-    ? Math.round(((studentsList.length - missingStudents.length) / studentsList.length) * 100) 
-    : 0;
+  const coveragePercent = studentsList.length > 0 ? Math.round(((studentsList.length - missingStudents.length) / studentsList.length) * 100) : 0;
 
-  // --- LÓGICA DE FILTRADO ---
+  // --- LÓGICA DE FILTRADO PRINCIPAL ---
   const getFilteredEvidences = () => {
     return evidences.filter(item => {
-      const matchesText = 
-          item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesText = item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesActivity = filterActivity ? item.activityName === filterActivity : true;
       const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
       return matchesText && matchesActivity && matchesStudent;
     });
   };
-
   const filteredItems = getFilteredEvidences();
   const folders = {};
   if (!filterStudent) {
@@ -108,6 +119,17 @@ export function EvidenceList() {
         folders[name].push(item);
       });
   }
+
+  // --- FILTRADO DE ALUMNOS EN EL MODAL DE EDICIÓN ---
+  const getStudentsForEdit = () => {
+      return studentsList.filter(s => {
+          const matchGrade = modalFilters.grade === 'Todos' || s.grade === modalFilters.grade;
+          const matchSection = modalFilters.section === 'Todos' || s.section === modalFilters.section;
+          const matchLevel = modalFilters.level === 'Todos' || s.level === modalFilters.level;
+          const matchShift = modalFilters.shift === 'Todos' || s.shift === modalFilters.shift;
+          return matchGrade && matchSection && matchLevel && matchShift;
+      });
+  };
 
   // --- ACCIONES ---
   const handleDelete = async () => {
@@ -198,41 +220,29 @@ export function EvidenceList() {
                          <Download size={12}/> ZIP
                      </button>
                  )}
-                 {/* BOTÓN DE ESTADÍSTICAS */}
                  <button onClick={()=>setShowStats(!showStats)} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background: showStats ? '#f59e0b' : '#f3f4f6', color: showStats ? 'white' : '#444', border:'none', borderRadius:'20px'}}>
                      <PieChart size={12}/> Progreso
                  </button>
              </div>
          </div>
 
-         {/* PANEL DE ESTADÍSTICAS (DESPLEGABLE) */}
+         {/* PANEL ESTADÍSTICAS */}
          {showStats && (
              <div style={{marginTop:'5px', paddingTop:'10px', borderTop:'1px dashed #e2e8f0', animation:'fadeIn 0.3s'}}>
                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5px'}}>
                      <span style={{fontSize:'12px', fontWeight:'bold', color:'#555'}}>Cobertura del Curso: {coveragePercent}%</span>
                      <span style={{fontSize:'12px', color:'#888'}}>{studentsList.length - missingStudents.length}/{studentsList.length} alumnos</span>
                  </div>
-                 
-                 {/* Barra de Progreso */}
                  <div style={{width:'100%', height:'8px', background:'#e2e8f0', borderRadius:'4px', overflow:'hidden', marginBottom:'10px'}}>
                      <div style={{width:`${coveragePercent}%`, height:'100%', background: coveragePercent === 100 ? '#10b981' : coveragePercent > 50 ? '#f59e0b' : '#ef4444', transition:'width 0.5s'}}></div>
                  </div>
-
                  {missingStudents.length === 0 ? (
-                     <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#10b981', background:'#ecfdf5', padding:'8px', borderRadius:'6px'}}>
-                         <CheckCircle size={14}/> ¡Excelente! Todos los alumnos tienen evidencia.
-                     </div>
+                     <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#10b981', background:'#ecfdf5', padding:'8px', borderRadius:'6px'}}><CheckCircle size={14}/> Todos evaluados.</div>
                  ) : (
                      <div style={{fontSize:'12px'}}>
-                         <div style={{display:'flex', alignItems:'center', gap:'5px', color:'#b91c1c', marginBottom:'5px'}}>
-                             <AlertTriangle size={14}/> <strong>Faltan evidencias de ({missingStudents.length}):</strong>
-                         </div>
+                         <div style={{display:'flex', alignItems:'center', gap:'5px', color:'#b91c1c', marginBottom:'5px'}}><AlertTriangle size={14}/> <strong>Faltan evidencias de:</strong></div>
                          <div style={{display:'flex', flexWrap:'wrap', gap:'5px', maxHeight:'80px', overflowY:'auto'}}>
-                             {missingStudents.map(s => (
-                                 <span key={s.id} style={{background:'#fee2e2', color:'#991b1b', padding:'2px 6px', borderRadius:'4px', border:'1px solid #fca5a5'}}>
-                                     {s.name}
-                                 </span>
-                             ))}
+                             {missingStudents.map(s => <span key={s.id} style={{background:'#fee2e2', color:'#991b1b', padding:'2px 6px', borderRadius:'4px', border:'1px solid #fca5a5'}}>{s.name}</span>)}
                          </div>
                      </div>
                  )}
@@ -298,7 +308,9 @@ export function EvidenceList() {
                      <img src={inspectorItem.fileUrl} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}} />
                 )}
             </div>
-            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'40vh', overflowY:'auto'}}>
+            
+            {/* PANEL INFERIOR */}
+            <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'45vh', overflowY:'auto'}}>
                 {!isEditing ? (
                     <div style={{padding:'20px'}}>
                         <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
@@ -317,26 +329,40 @@ export function EvidenceList() {
                     </div>
                 ) : (
                     <div style={{padding:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Nombre Actividad</label>
-                        <input value={editData.activityName} onChange={e => setEditData({...editData, activityName: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px'}}/>
-                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Comentario</label>
-                        <textarea value={editData.comment} onChange={e => setEditData({...editData, comment: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px', height:'50px'}}/>
-                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar Alumnos</label>
-                        <div style={{maxHeight:'100px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
-                            {studentsList.map(s => {
+                        
+                        {/* FILTROS DE ALUMNOS (NUEVO) */}
+                        <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
+                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar Alumnos:</div>
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
+                                <select value={modalFilters.grade} onChange={e=>setModalFilters({...modalFilters, grade:e.target.value})} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                                <select value={modalFilters.section} onChange={e=>setModalFilters({...modalFilters, section:e.target.value})} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
+                            </div>
+                        </div>
+
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar ({getStudentsForEdit().length} visibles)</label>
+                        <div style={{maxHeight:'120px', overflowY:'auto', border:'1px solid #eee', padding:'5px', borderRadius:'6px'}}>
+                            {getStudentsForEdit().length === 0 && <p style={{fontSize:'11px', color:'#999', textAlign:'center'}}>No hay alumnos con estos filtros.</p>}
+                            {getStudentsForEdit().map(s => {
                                 const isSelected = editData.studentIds.includes(s.id);
                                 return (
                                     <div key={s.id} onClick={() => {
                                         const newIds = isSelected ? editData.studentIds.filter(id => id !== s.id) : [...editData.studentIds, s.id];
                                         setEditData({...editData, studentIds: newIds});
-                                    }} style={{padding:'5px', fontSize:'12px', display:'flex', alignItems:'center', gap:'5px', cursor:'pointer', background: isSelected ? '#eff6ff' : 'white'}}>
+                                    }} style={{padding:'6px', fontSize:'12px', display:'flex', alignItems:'center', gap:'5px', cursor:'pointer', background: isSelected ? '#eff6ff' : 'white', borderBottom:'1px solid #f9fafb'}}>
                                         {isSelected ? <CheckCircle size={14} color="blue"/> : <div style={{width:14}}/>}
-                                        {s.name}
+                                        <span>{s.name} <small style={{color:'#999'}}>({s.grade} {s.section})</small></span>
                                     </div>
                                 )
                             })}
                         </div>
-                        <button onClick={handleUpdate} style={{marginTop:'10px', padding:'12px', background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold'}}>Guardar</button>
+
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Nombre Actividad</label>
+                        <input value={editData.activityName} onChange={e => setEditData({...editData, activityName: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px'}}/>
+                        
+                        <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Comentario</label>
+                        <textarea value={editData.comment} onChange={e => setEditData({...editData, comment: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px', height:'40px'}}/>
+                        
+                        <button onClick={handleUpdate} style={{marginTop:'5px', padding:'12px', background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold'}}>Guardar Cambios</button>
                     </div>
                 )}
             </div>
@@ -345,3 +371,5 @@ export function EvidenceList() {
     </div>
   );
 }
+
+const selectStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '11px' };
