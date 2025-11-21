@@ -5,6 +5,7 @@ import { collection, query, onSnapshot, doc, deleteDoc, where } from 'firebase/f
 import { ref, deleteObject } from 'firebase/storage';
 import { Image as ImageIcon, Trash2, ChevronLeft, ChevronRight, Search, LayoutGrid, List as ListIcon, X, PlayCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Skeleton } from './Skeleton';
 
 export function EvidenceList() {
   const [evidences, setEvidences] = useState([]);
@@ -64,7 +65,26 @@ export function EvidenceList() {
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, viewMode]);
 
-  if (loading) return <div style={{textAlign:'center', marginTop:'20px'}}>Cargando...</div>;
+  if (loading) {
+    return (
+      <div style={{ paddingBottom: '20px' }}>
+        {/* Skeleton del Buscador */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+          <Skeleton height="45px" />
+          <Skeleton width="80px" height="45px" />
+        </div>
+        
+        {/* Skeleton de la Grilla (Simulamos 9 fotos) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+          {[...Array(9)].map((_, i) => (
+            <div key={i} style={{ aspectRatio: '1/1' }}>
+              <Skeleton height="100%" style={{borderRadius: 0}} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ paddingBottom: '20px' }}>

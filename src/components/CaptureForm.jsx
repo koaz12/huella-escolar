@@ -5,7 +5,6 @@ import { db, storage, auth } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, onSnapshot, query, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-// 1. IMPORTAMOS LA LIBRERÍA DE COMPRESIÓN
 import imageCompression from 'browser-image-compression';
 
 export function CaptureForm() {
@@ -26,19 +25,13 @@ export function CaptureForm() {
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        const q = query(
-          collection(db, "students"), 
-          where("teacherId", "==", user.uid)
-        );
-        
+        const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubscribeSnapshot = onSnapshot(q, (qs) => {
           const arr = [];
           qs.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
           arr.sort((a, b) => (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0));
           setStudents(arr);
         }, (error) => {
-            console.error(error);
-            // Silenciamos el error si es por permisos/índices en construcción para no molestar
             if(error.code !== 'permission-denied') toast.error("Error cargando alumnos");
         });
         return () => unsubscribeSnapshot();
@@ -59,7 +52,26 @@ export function CaptureForm() {
     );
   });
 
-  const handleFileChange = (e) => { if (e.target.files[0]) setFile(e.target.files[0]); };
+  // 1. VALIDACIÓN AL SELECCIONAR EL ARCHIVO
+  const handleFileChange = (e) => { 
+    const selectedFile = e.target.files[0];
+    if (!selectedFile) return;
+
+    // Límite para VIDEO: 50MB (50 * 1024 * 1024 bytes)
+    const MAX_VIDEO_SIZE = 50 * 1024 * 1024; 
+    
+    if (selectedFile.type.startsWith('video/') && selectedFile.size > MAX_VIDEO_SIZE) {
+        toast.error("⚠️ El video es muy pesado (Máx 50MB). Intenta grabarlo en menor calidad o más corto.", {
+            duration: 5000, // Que dure 5 segundos el mensaje
+            icon: '🎥'
+        });
+        e.target.value = ""; // Limpiar input
+        setFile(null);
+        return;
+    }
+
+    setFile(selectedFile); 
+  };
   
   const toggleStudent = (id) => {
     if (selectedStudents.includes(id)) setSelectedStudents(selectedStudents.filter(s => s !== id));
@@ -77,40 +89,37 @@ export function CaptureForm() {
     if (!file || !activity) return toast.error("Falta foto o actividad");
     
     setLoading(true);
-    const loadingToast = toast.loading("Procesando..."); // Cambiamos mensaje a "Procesando"
+    const loadingToast = toast.loading("Procesando..."); 
 
     try {
       let fileToUpload = file;
 
-      // 2. COMPRESIÓN DE IMAGEN (Solo si es imagen, no video)
+      // 2. COMPRESIÓN (SOLO IMÁGENES)
       if (file.type.startsWith('image/')) {
         const options = {
-          maxSizeMB: 0.5,          // Queremos que pese máximo 500KB (0.5MB)
-          maxWidthOrHeight: 1280,  // Redimensionar a HD (720p/1080p aprox)
-          useWebWorker: true       // Usar hilo separado para no congelar la App
+          maxSizeMB: 0.5,          
+          maxWidthOrHeight: 1280,  
+          useWebWorker: true       
         };
         
         try {
             toast.loading("Comprimiendo foto...", { id: loadingToast });
             const compressedFile = await imageCompression(file, options);
             fileToUpload = compressedFile;
-            console.log(`Comprimido: ${(file.size / 1024 / 1024).toFixed(2)}MB -> ${(compressedFile.size / 1024 / 1024).toFixed(2)}MB`);
         } catch (error) {
             console.error("Error comprimiendo:", error);
-            // Si falla la compresión, subimos la original
         }
+      } else {
+        // Si es video, avisamos que tardará un poco más
+        toast.loading("Subiendo video (esto puede tardar)...", { id: loadingToast });
       }
 
-      // 3. GUARDADO (Offline u Online)
+      // 3. GUARDADO
       if (!navigator.onLine) {
-        // Guardamos offline (Dexie o Local)
         await saveOffline(fileToUpload, activity, selectedStudents, comment);
         toast.success("Guardado OFFLINE (Pendiente)", { id: loadingToast });
       } else {
-        // Subida a Firebase
-        toast.loading("Subiendo a la nube...", { id: loadingToast });
         const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${fileToUpload.name}`);
-        
         const snapshot = await uploadBytes(storageRef, fileToUpload);
         const downloadURL = await getDownloadURL(snapshot.ref);
 
@@ -125,10 +134,7 @@ export function CaptureForm() {
         toast.success("¡Subido Exitosamente!", { id: loadingToast });
       }
       
-      // Reset
       setActivity(''); setComment(''); setFile(null); setSelectedStudents([]);
-      
-      // Resetear input file visualmente
       document.getElementById('fileInput').value = ""; 
 
     } catch (error) {
@@ -146,12 +152,11 @@ export function CaptureForm() {
         <input type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Título Actividad" style={{ padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #ddd' }} />
         <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '60px', borderRadius: '8px', border: '1px solid #ddd' }} />
         
-        {/* Agregué ID para poder limpiar el input después */}
+        {/* Input con accept para video e imagen */}
         <input id="fileInput" type="file" accept="image/*,video/*" onChange={handleFileChange} />
 
         <div style={{ backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '8px', border: '1px solid #e9ecef' }}>
-          
-          {/* --- SELECTORES DE FILTRO --- */}
+          {/* ... (Resto de los filtros y lista de alumnos IGUAL que antes) ... */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', marginBottom: '5px' }}>
             <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}><option>Primaria</option><option>Secundaria</option></select>
             <select value={filterShift} onChange={e => setFilterShift(e.target.value)} style={{padding:'8px', borderRadius:'6px', border:'1px solid #ccc'}}><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
