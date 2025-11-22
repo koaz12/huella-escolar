@@ -1,50 +1,42 @@
-// src/components/EvidenceList.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
 import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { 
-  Trash2, Search, X, PlayCircle, Folder, ArrowLeft, 
-  Edit2, Filter, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
-  Film, Smile, Meh, Frown, Activity
+  Trash2, Search, X, Folder, ArrowLeft, 
+  Edit2, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
+  Film, Smile, Meh, Frown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Skeleton } from './Skeleton';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
-export function EvidenceList() {
-  // --- ESTADOS DE DATOS ---
+export function EvidenceList({ initialStudentId }) {
+  // --- ESTADOS ---
   const [evidences, setEvidences] = useState([]);
   const [studentsMap, setStudentsMap] = useState({});
   const [studentsList, setStudentsList] = useState([]); 
   const [loading, setLoading] = useState(true);
 
-  // --- ESTADOS DE VISTA Y FILTROS ---
+  // Filtros
   const [filterActivity, setFilterActivity] = useState(null);
-  const [filterStudent, setFilterStudent] = useState(''); 
-  const [filterPerformance, setFilterPerformance] = useState('Todos'); // <--- NUEVO FILTRO
+  const [filterStudent, setFilterStudent] = useState(initialStudentId || ''); // Inicializado con el prop
+  const [filterPerformance, setFilterPerformance] = useState('Todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(false);
 
-  // --- ESTADOS DE INTERACCIÓN ---
+  // UI
   const [inspectorItem, setInspectorItem] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  
-  // Datos edición (Incluye performance)
   const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
+  const [modalFilters, setModalFilters] = useState({ grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos' });
 
-  // Filtros Modal
-  const [modalFilters, setModalFilters] = useState({
-      grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos'
-  });
-
-  // 1. CARGA INICIAL
+  // --- CARGA ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // A) Evidencias
         const qEv = query(collection(db, "evidence"), where("teacherId", "==", user.uid));
         const unsubEv = onSnapshot(qEv, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -57,7 +49,6 @@ export function EvidenceList() {
           setLoading(false);
         });
 
-        // B) Alumnos
         const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubStu = onSnapshot(qStu, (qs) => {
            const map = {};
@@ -80,7 +71,7 @@ export function EvidenceList() {
     return () => unsubscribeAuth();
   }, []);
 
-  // --- CÁLCULOS ---
+  // --- HELPERS ---
   const getMissingStudents = () => {
       if (studentsList.length === 0) return [];
       const seenIds = new Set();
@@ -92,22 +83,19 @@ export function EvidenceList() {
   const missingStudents = getMissingStudents();
   const coveragePercent = studentsList.length > 0 ? Math.round(((studentsList.length - missingStudents.length) / studentsList.length) * 100) : 0;
 
-  // --- LÓGICA DE FILTRADO ---
   const getFilteredEvidences = () => {
     return evidences.filter(item => {
       const matchesText = item.activityName.toLowerCase().includes(searchTerm.toLowerCase()) || (item.comment && item.comment.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesActivity = filterActivity ? item.activityName === filterActivity : true;
       const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
-      // Filtro Semáforo
       const matchesPerformance = filterPerformance === 'Todos' || item.performance === filterPerformance;
-      
       return matchesText && matchesActivity && matchesStudent && matchesPerformance;
     });
   };
   const filteredItems = getFilteredEvidences();
   
   const folders = {};
-  if (!filterStudent && filterPerformance === 'Todos') { // Solo mostrar carpetas si no hay filtros específicos
+  if (!filterStudent && filterPerformance === 'Todos') {
       filteredItems.forEach(item => {
         const name = item.activityName || "Sin Nombre";
         if (!folders[name]) folders[name] = [];
@@ -123,6 +111,23 @@ export function EvidenceList() {
           const matchShift = modalFilters.shift === 'Todos' || s.shift === modalFilters.shift;
           return matchGrade && matchSection && matchLevel && matchShift;
       });
+  };
+
+  const getPerformanceIcon = (perf) => {
+      switch(perf) {
+          case 'logrado': return <Smile size={16} color="#10b981" fill="#ecfdf5"/>;
+          case 'proceso': return <Meh size={16} color="#f59e0b" fill="#fffbeb"/>;
+          case 'apoyo': return <Frown size={16} color="#ef4444" fill="#fef2f2"/>;
+          default: return null;
+      }
+  };
+  const getPerformanceColor = (perf) => {
+      switch(perf) {
+          case 'logrado': return '#10b981';
+          case 'proceso': return '#f59e0b';
+          case 'apoyo': return '#ef4444';
+          default: return '#e5e7eb';
+      }
   };
 
   // --- ACCIONES ---
@@ -150,10 +155,8 @@ export function EvidenceList() {
     const toastId = toast.loading("Guardando cambios...");
     try {
         await updateDoc(doc(db, "evidence", inspectorItem.id), {
-            activityName: editData.activityName,
-            comment: editData.comment,
-            studentIds: editData.studentIds,
-            performance: editData.performance // Guardamos el semáforo
+            activityName: editData.activityName, comment: editData.comment,
+            studentIds: editData.studentIds, performance: editData.performance
         });
         setInspectorItem(prev => ({...prev, ...editData}));
         setIsEditing(false);
@@ -161,7 +164,7 @@ export function EvidenceList() {
     } catch (e) { toast.error("Error al guardar", {id: toastId}); }
   };
 
-  const downloadFolderZip = async () => { /* (Código ZIP igual que antes) */
+  const downloadFolderZip = async () => {
     if (filteredItems.length === 0) return;
     setIsDownloading(true);
     const toastId = toast.loading(`Empaquetando ${filteredItems.length} archivos...`);
@@ -179,29 +182,7 @@ export function EvidenceList() {
         const zipName = filterActivity ? `${filterActivity}.zip` : `Evidencias.zip`;
         saveAs(content, zipName);
         toast.success("¡Descarga lista!", {id: toastId});
-    } catch (error) {
-        console.error(error);
-        toast.error("Error descarga. Intenta menos archivos.", {id: toastId});
-    } finally { setIsDownloading(false); }
-  };
-
-  // Helper para iconos de semáforo
-  const getPerformanceIcon = (perf) => {
-      switch(perf) {
-          case 'logrado': return <Smile size={16} color="#10b981" fill="#ecfdf5"/>;
-          case 'proceso': return <Meh size={16} color="#f59e0b" fill="#fffbeb"/>;
-          case 'apoyo': return <Frown size={16} color="#ef4444" fill="#fef2f2"/>;
-          default: return null;
-      }
-  };
-
-  const getPerformanceColor = (perf) => {
-      switch(perf) {
-          case 'logrado': return '#10b981'; // Verde
-          case 'proceso': return '#f59e0b'; // Amarillo
-          case 'apoyo': return '#ef4444';   // Rojo
-          default: return '#e5e7eb';        // Gris
-      }
+    } catch (error) { console.error(error); toast.error("Error descarga.", {id: toastId}); } finally { setIsDownloading(false); }
   };
 
   if (loading) return <div style={{paddingBottom:'20px'}}><Skeleton height="50px" style={{marginBottom:'10px'}}/><Skeleton height="200px"/></div>;
@@ -209,7 +190,7 @@ export function EvidenceList() {
   return (
     <div style={{ paddingBottom: '20px' }}>
       
-      {/* 1. BARRA DE HERRAMIENTAS */}
+      {/* TOOLBAR */}
       <div style={{background:'white', padding:'10px', borderRadius:'12px', marginBottom:'15px', border:'1px solid #e2e8f0', display:'flex', flexDirection:'column', gap:'10px'}}>
          <div style={{display:'flex', gap:'10px'}}>
              <div style={{position:'relative', flex:1}}>
@@ -222,10 +203,8 @@ export function EvidenceList() {
              </select>
          </div>
 
-         {/* FILA DE ACCIONES EXTRA */}
          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
              <div style={{display:'flex', gap:'5px'}}>
-                 {/* Filtro Semáforo Rápido */}
                  <select value={filterPerformance} onChange={e=>setFilterPerformance(e.target.value)} style={{padding:'6px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'11px'}}>
                      <option value="Todos">🌈 Todos</option>
                      <option value="logrado">🟢 Logrado</option>
@@ -233,25 +212,16 @@ export function EvidenceList() {
                      <option value="apoyo">🔴 Apoyo</option>
                  </select>
              </div>
-             
              <div style={{display:'flex', gap:'5px'}}>
-                 {(filterActivity || filterStudent) && (
-                     <button onClick={downloadFolderZip} disabled={isDownloading} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background:'#10b981', color:'white', border:'none', borderRadius:'20px'}}>
-                         <Download size={12}/> ZIP
-                     </button>
-                 )}
-                 <button onClick={()=>setShowStats(!showStats)} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background: showStats ? '#f59e0b' : '#f3f4f6', color: showStats ? 'white' : '#444', border:'none', borderRadius:'20px'}}>
-                     <PieChart size={12}/>
-                 </button>
+                 {(filterActivity || filterStudent) && <button onClick={downloadFolderZip} disabled={isDownloading} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background:'#10b981', color:'white', border:'none', borderRadius:'20px'}}><Download size={12}/> ZIP</button>}
+                 <button onClick={()=>setShowStats(!showStats)} style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', padding:'6px 10px', background: showStats ? '#f59e0b' : '#f3f4f6', color: showStats ? 'white' : '#444', border:'none', borderRadius:'20px'}}><PieChart size={12}/></button>
              </div>
          </div>
 
-         {/* TÍTULO ACTUAL */}
          <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'13px', fontWeight:'bold', color:'#333', marginTop:'5px'}}>
              {filterStudent ? (<>👤 Portafolio: <span style={{color:'#3b82f6'}}>{studentsMap[filterStudent]}</span></>) : filterActivity ? (<><button onClick={()=>setFilterActivity(null)} style={{background:'none', border:'none', cursor:'pointer'}}><ArrowLeft size={14}/></button> 📂 {filterActivity}</>) : (<>📂 Todas las Carpetas</>)}
          </div>
 
-         {/* PANEL ESTADÍSTICAS (Mismo código) */}
          {showStats && (
              <div style={{marginTop:'5px', paddingTop:'10px', borderTop:'1px dashed #e2e8f0', animation:'fadeIn 0.3s'}}>
                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5px'}}>
@@ -266,7 +236,7 @@ export function EvidenceList() {
          )}
       </div>
 
-      {/* 2. VISTA CARPETAS (Solo si no hay filtro de portafolio ni semáforo) */}
+      {/* VISTA CARPETAS */}
       {!filterActivity && !filterStudent && filterPerformance === 'Todos' && (
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
               {Object.keys(folders).map(name => (
@@ -282,31 +252,26 @@ export function EvidenceList() {
           </div>
       )}
 
-      {/* 3. VISTA GRILLA */}
+      {/* VISTA GRID */}
       {(filterActivity || filterStudent || filterPerformance !== 'Todos') && (
           <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'2px'}}>
               {filteredItems.map(item => (
                   <div key={item.id} onClick={() => { setInspectorItem(item); setIsEditing(false); }} style={{aspectRatio:'1/1', position:'relative', overflow:'hidden', background:'#f1f5f9', borderBottom:`3px solid ${getPerformanceColor(item.performance)}`}}>
                       {(item.fileUrl.includes('.mp4') || item.fileType === 'video') && <Film size={16} color="white" style={{position:'absolute', top:5, left:5, zIndex:2}}/>}
                       {item.isFavorite && <Star size={16} color="#f59e0b" fill="#f59e0b" style={{position:'absolute', top:5, right:5, zIndex:2}}/>}
-                      {/* Indicador Semáforo Miniatura */}
                       {item.performance && <div style={{position:'absolute', bottom:5, right:5, zIndex:2}}>{getPerformanceIcon(item.performance)}</div>}
-                      
                       {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
                           <video src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
-                      ) : (
-                          <img src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />
-                      )}
+                      ) : <img src={item.fileUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} />}
                   </div>
               ))}
               {filteredItems.length === 0 && <p style={{gridColumn:'span 3', textAlign:'center', padding:'20px', color:'#999'}}>No se encontraron fotos.</p>}
           </div>
       )}
 
-      {/* 4. INSPECTOR / EDITOR */}
+      {/* INSPECTOR */}
       {inspectorItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 2000, display: 'flex', flexDirection: 'column' }}>
-            {/* Header Inspector */}
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', color:'white'}}>
                 <button onClick={() => setInspectorItem(null)} style={{background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', padding:'8px', color:'white'}}><X size={20}/></button>
                 <div style={{display:'flex', gap:'15px'}}>
@@ -314,49 +279,28 @@ export function EvidenceList() {
                         <Star size={24} fill={inspectorItem.isFavorite ? "#f59e0b" : "none"} color={inspectorItem.isFavorite ? "#f59e0b" : "white"}/>
                     </button>
                     <button onClick={() => {
-                        setEditData({ 
-                            activityName: inspectorItem.activityName, 
-                            comment: inspectorItem.comment || '', 
-                            studentIds: inspectorItem.studentIds || [],
-                            performance: inspectorItem.performance || '' // Cargar semáforo actual
-                        });
+                        setEditData({ activityName: inspectorItem.activityName, comment: inspectorItem.comment || '', studentIds: inspectorItem.studentIds || [], performance: inspectorItem.performance || '' });
                         setIsEditing(!isEditing);
-                    }} style={{background: isEditing ? '#3b82f6' : 'none', border:'none', color:'white', borderRadius:'4px', padding:'2px'}}>
-                        <Edit2 size={24}/>
-                    </button>
+                    }} style={{background: isEditing ? '#3b82f6' : 'none', border:'none', color:'white', borderRadius:'4px', padding:'2px'}}><Edit2 size={24}/></button>
                 </div>
             </div>
             
-            {/* Visor Multimedia */}
             <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden'}}>
                 {inspectorItem.fileUrl.includes('.mp4') || inspectorItem.fileType === 'video' ? (
                      <video src={inspectorItem.fileUrl} controls autoPlay style={{maxWidth:'100%', maxHeight:'100%'}} />
-                ) : (
-                     <img src={inspectorItem.fileUrl} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}} />
-                )}
+                ) : <img src={inspectorItem.fileUrl} style={{maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}} />}
             </div>
             
-            {/* Panel Inferior */}
             <div style={{background:'white', borderTopLeftRadius:'20px', borderTopRightRadius:'20px', maxHeight:'50vh', overflowY:'auto'}}>
                 {!isEditing ? (
-                    // MODO LECTURA
                     <div style={{padding:'20px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
                             <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
-                            {/* Badge de Semáforo en Lectura */}
-                            {inspectorItem.performance && (
-                                <span style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', padding:'4px 8px', borderRadius:'12px', background: getPerformanceColor(inspectorItem.performance) + '20', color: getPerformanceColor(inspectorItem.performance), border:`1px solid ${getPerformanceColor(inspectorItem.performance)}`, fontWeight:'bold', textTransform:'uppercase'}}>
-                                    {getPerformanceIcon(inspectorItem.performance)} {inspectorItem.performance}
-                                </span>
-                            )}
+                            {inspectorItem.performance && <span style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', padding:'4px 8px', borderRadius:'12px', background: getPerformanceColor(inspectorItem.performance) + '20', color: getPerformanceColor(inspectorItem.performance), border:`1px solid ${getPerformanceColor(inspectorItem.performance)}`, fontWeight:'bold', textTransform:'uppercase'}}>{getPerformanceIcon(inspectorItem.performance)} {inspectorItem.performance}</span>}
                         </div>
                         <p style={{fontSize:'12px', color:'#666', margin:0}}>{inspectorItem.date?.toDate().toLocaleString()}</p>
                         <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'10px'}}>
-                            {inspectorItem.studentIds?.map(uid => (
-                                <span key={uid} style={{fontSize:'11px', background:'#eff6ff', color:'#1e40af', padding:'3px 8px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px'}}>
-                                    <User size={10}/> {studentsMap[uid] || 'Desconocido'}
-                                </span>
-                            ))}
+                            {inspectorItem.studentIds?.map(uid => <span key={uid} style={{fontSize:'11px', background:'#eff6ff', color:'#1e40af', padding:'3px 8px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px'}}><User size={10}/> {studentsMap[uid] || 'Desconocido'}</span>)}
                         </div>
                         {inspectorItem.comment && <div style={{marginTop:'15px', background:'#f8f9fa', padding:'10px', borderRadius:'8px', fontSize:'14px', fontStyle:'italic'}}>"{inspectorItem.comment}"</div>}
                         <div style={{marginTop:'20px', display:'flex', justifyContent:'flex-end'}}>
@@ -364,24 +308,14 @@ export function EvidenceList() {
                         </div>
                     </div>
                 ) : (
-                    // MODO EDICIÓN
                     <div style={{padding:'20px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                        
-                        {/* SELECCIÓN DE DESEMPEÑO (NUEVO) */}
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Evaluación de Desempeño</label>
                         <div style={{display:'flex', gap:'10px'}}>
-                            <button onClick={()=>setEditData({...editData, performance: 'logrado'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='logrado' ? '#10b981' : '#e5e7eb'}`, background: editData.performance==='logrado' ? '#ecfdf5' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
-                                <Smile color="#10b981"/> <span style={{fontSize:'10px', color:'#10b981'}}>Logrado</span>
-                            </button>
-                            <button onClick={()=>setEditData({...editData, performance: 'proceso'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='proceso' ? '#f59e0b' : '#e5e7eb'}`, background: editData.performance==='proceso' ? '#fffbeb' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
-                                <Meh color="#f59e0b"/> <span style={{fontSize:'10px', color:'#f59e0b'}}>Proceso</span>
-                            </button>
-                            <button onClick={()=>setEditData({...editData, performance: 'apoyo'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='apoyo' ? '#ef4444' : '#e5e7eb'}`, background: editData.performance==='apoyo' ? '#fef2f2' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
-                                <Frown color="#ef4444"/> <span style={{fontSize:'10px', color:'#ef4444'}}>Apoyo</span>
-                            </button>
+                            <button onClick={()=>setEditData({...editData, performance: 'logrado'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='logrado' ? '#10b981' : '#e5e7eb'}`, background: editData.performance==='logrado' ? '#ecfdf5' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}><Smile color="#10b981"/> <span style={{fontSize:'10px', color:'#10b981'}}>Logrado</span></button>
+                            <button onClick={()=>setEditData({...editData, performance: 'proceso'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='proceso' ? '#f59e0b' : '#e5e7eb'}`, background: editData.performance==='proceso' ? '#fffbeb' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}><Meh color="#f59e0b"/> <span style={{fontSize:'10px', color:'#f59e0b'}}>Proceso</span></button>
+                            <button onClick={()=>setEditData({...editData, performance: 'apoyo'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='apoyo' ? '#ef4444' : '#e5e7eb'}`, background: editData.performance==='apoyo' ? '#fef2f2' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}><Frown color="#ef4444"/> <span style={{fontSize:'10px', color:'#ef4444'}}>Apoyo</span></button>
                         </div>
 
-                        {/* FILTROS DE ALUMNOS */}
                         <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
                             <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista de Alumnos:</div>
                             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginBottom:'5px'}}>

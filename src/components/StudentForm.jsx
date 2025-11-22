@@ -1,4 +1,3 @@
-// src/components/StudentForm.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
 import { 
@@ -8,19 +7,16 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
-import { UserPlus, Edit2, Trash2, FileSpreadsheet, Download, X, Save, Search, Filter, Calendar, Hash, User } from 'lucide-react';
+import { 
+  UserPlus, Edit2, Trash2, FileSpreadsheet, Download, X, 
+  Save, Search, Filter, Calendar, User, Folder 
+} from 'lucide-react';
 
-export function StudentForm() {
+export function StudentForm({ onNavigate }) {
   // --- ESTADOS ---
   const [formData, setFormData] = useState({ 
-    name: '', 
-    studentId: '', 
-    level: 'Primaria', 
-    shift: 'Matutina', 
-    grade: '4to', 
-    section: 'A', 
-    listNumber: '', 
-    birthDate: '' 
+    name: '', studentId: '', level: 'Primaria', shift: 'Matutina', 
+    grade: '4to', section: 'A', listNumber: '', birthDate: '' 
   });
   
   const [photoFile, setPhotoFile] = useState(null);
@@ -28,30 +24,28 @@ export function StudentForm() {
   const [editingId, setEditingId] = useState(null);
   const [myStudents, setMyStudents] = useState([]);
   
-  // Filtros de VISTA (Para buscar en la lista)
+  // Filtros de VISTA
   const [viewFilters, setViewFilters] = useState({
-      level: 'Todos',
-      shift: 'Todos',
-      grade: 'Todos',
-      section: 'Todos'
+      level: 'Todos', shift: 'Todos', grade: 'Todos', section: 'Todos'
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados para Excel
+  // Estados Excel
   const [showExcel, setShowExcel] = useState(false);
   const [excelPreview, setExcelPreview] = useState([]);
   const [bulkConfig, setBulkConfig] = useState({ level: 'Primaria', shift: 'Matutina', grade: '4to', section: 'A' });
+
+  const itemsPerPage = 10;
+  const [currentPage, setCurrentPage] = useState(1);
 
   // --- 1. CARGA DE DATOS ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
         const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
-        
         const unsubscribeSnapshot = onSnapshot(q, (qs) => {
           const arr = [];
           qs.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-          // Ordenar: Grado -> Sección -> Número de lista
           arr.sort((a, b) => {
             if (a.grade !== b.grade) return a.grade.localeCompare(b.grade);
             if (a.section !== b.section) return a.section.localeCompare(b.section);
@@ -67,16 +61,11 @@ export function StudentForm() {
     return () => unsubscribeAuth();
   }, []);
 
-  // --- 2. AUTOCOMPLETADO INTELIGENTE (# LISTA) ---
-  // Cada vez que cambie el Grado o Sección en el FORMULARIO, calculamos el siguiente número
+  // --- 2. AUTOCOMPLETADO # LISTA ---
   useEffect(() => {
-      if (editingId) return; // Si editamos, no tocar el número
-
-      // Filtramos los alumnos que ya tengo en ese curso
+      if (editingId) return;
       const existing = myStudents.filter(s => s.grade === formData.grade && s.section === formData.section);
-      
       if (existing.length > 0) {
-          // Buscar el número más alto
           const maxNum = Math.max(...existing.map(s => Number(s.listNumber) || 0));
           setFormData(prev => ({ ...prev, listNumber: maxNum + 1 }));
       } else {
@@ -84,8 +73,7 @@ export function StudentForm() {
       }
   }, [formData.grade, formData.section, myStudents, editingId]);
 
-
-  // --- VALIDACIONES Y GUARDADO ---
+  // --- HANDLERS ---
   const checkDuplicateId = async (studentId) => {
     if (!studentId) return false;
     const q = query(collection(db, "students"), where("teacherId", "==", auth.currentUser.uid), where("studentId", "==", studentId));
@@ -102,8 +90,6 @@ export function StudentForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!auth.currentUser) return toast.error("Inicia sesión");
-    
-    // VALIDACIÓN DE REGLAS DE NEGOCIO
     if (Number(formData.listNumber) < 1) return toast.error("El número de lista debe ser 1 o mayor");
     
     setLoading(true);
@@ -143,24 +129,17 @@ export function StudentForm() {
         toast.success(`Alumno #${dataToSave.listNumber} creado`, { id: toastId });
       }
 
-      // Resetear form (Manteniendo el grado/sección actual para meter otro rápido)
-      setFormData(prev => ({ 
-          ...prev, 
-          name: '', studentId: '', birthDate: '', 
-          // listNumber se recalculará solo por el useEffect
-      }));
+      setFormData(prev => ({ ...prev, name: '', studentId: '', birthDate: '' }));
       setPhotoFile(null);
       document.getElementById('photoInput').value = "";
 
     } catch (error) { 
         console.error(error);
         toast.error(`Error: ${error.message}`, { id: toastId }); 
-    } finally { 
-        setLoading(false); 
-    }
+    } finally { setLoading(false); }
   };
 
-  // --- EXCEL ---
+  // --- EXCEL Y DELETE ---
   const downloadTemplate = () => {
     const ws = XLSX.utils.json_to_sheet([{ Nombre: "Juan Perez", ID: "1001", Numero: 1 }, { Nombre: "Maria Lopez", ID: "1002", Numero: 2 }]);
     const wb = XLSX.utils.book_new();
@@ -180,7 +159,7 @@ export function StudentForm() {
     };
     reader.readAsBinaryString(file);
   };
-  const saveExcelData = async () => { /* (Mismo código anterior de Excel) */ 
+  const saveExcelData = async () => {
       if (!auth.currentUser) return;
       setLoading(true);
       try {
@@ -200,7 +179,6 @@ export function StudentForm() {
         setExcelPreview([]); setShowExcel(false);
       } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
-
   const handleEdit = (s) => { 
     setFormData({
         name: s.name, studentId: s.studentId || '', 
@@ -210,7 +188,6 @@ export function StudentForm() {
     }); 
     setEditingId(s.id); setShowExcel(false); window.scrollTo({top:0, behavior:'smooth'}); 
   };
-
   const handleDelete = async (id) => { 
     if(confirm("¿Seguro que deseas borrar este alumno?")) {
         try { await deleteDoc(doc(db,"students",id)); toast.success("Borrado"); } 
@@ -218,33 +195,32 @@ export function StudentForm() {
     }
   };
 
-  // --- FILTRADO DE VISTA ---
   const filteredStudents = myStudents.filter(s => {
-      // 1. Filtro Texto
       const matchText = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.studentId && s.studentId.includes(searchTerm));
-      // 2. Filtros Selectores
       const matchLevel = viewFilters.level === 'Todos' || s.level === viewFilters.level;
       const matchShift = viewFilters.shift === 'Todos' || s.shift === viewFilters.shift;
       const matchGrade = viewFilters.grade === 'Todos' || s.grade === viewFilters.grade;
       const matchSection = viewFilters.section === 'Todos' || s.section === viewFilters.section;
-
       return matchText && matchLevel && matchShift && matchGrade && matchSection;
   });
+  
+  const paginatedStudents = filteredStudents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div style={{ paddingBottom: '80px' }}>
       
-      {/* HEADER ACCIONES */}
       <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
         <button onClick={() => {setShowExcel(!showExcel); setEditingId(null);}} style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px', background: showExcel ? '#ef4444':'#10b981', border: 'none', borderRadius: '8px', color: 'white', fontWeight: '600', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'}}>
           {showExcel ? <X size={18}/> : <FileSpreadsheet size={18}/>} {showExcel ? 'Cancelar' : 'Carga Masiva'}
         </button>
       </div>
 
-      {/* MÓDULO EXCEL (Resumido visualmente) */}
       {showExcel && (
         <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', border: '2px solid #10b981'}}>
-           {/* ... (Tu lógica de excel existente, para ahorrar espacio visual aquí) ... */}
+           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom: '15px'}}>
+              <select value={bulkConfig.grade} onChange={(e)=>setBulkConfig({...bulkConfig, grade: e.target.value})} style={inputStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+              <select value={bulkConfig.section} onChange={(e)=>setBulkConfig({...bulkConfig, section: e.target.value})} style={inputStyle}>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
+           </div>
            <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
               <button onClick={downloadTemplate} style={{...btnSecondaryStyle, flex:1}}><Download size={16}/> Plantilla</button>
               <label style={{...btnSecondaryStyle, flex:1, background: '#3b82f6', color: 'white', cursor: 'pointer'}}><FileSpreadsheet size={16}/> Subir .xlsx<input type="file" accept=".xlsx, .xls" hidden onChange={handleExcelRead} /></label>
@@ -253,126 +229,74 @@ export function StudentForm() {
         </div>
       )}
 
-      {/* FORMULARIO DE CREACIÓN/EDICIÓN */}
       {!showExcel && (
         <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
            <h3 style={{marginTop:0, display:'flex', alignItems:'center', gap:'8px', fontSize:'16px'}}>
              {editingId ? <Edit2 size={18} color="#f59e0b"/> : <UserPlus size={18} color="#3b82f6"/>}
              {editingId ? 'Editar Datos' : 'Registrar Alumno'}
            </h3>
-           
            <form onSubmit={handleSubmit} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              {/* Fila 1: Nombre y ID */}
               <div style={{display:'flex', gap:'8px'}}>
                   <input name="name" placeholder="Nombre Completo" value={formData.name} onChange={handleChange} required style={{...inputStyle, flex:2}}/>
                   <input name="studentId" placeholder="ID / Matrícula" value={formData.studentId} onChange={handleChange} style={{...inputStyle, flex:1}}/>
               </div>
-
-              {/* Fila 2: Nivel y Tanda (NUEVO) */}
               <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Nivel</label>
-                      <select name="level" value={formData.level} onChange={handleChange} style={inputStyle}><option>Primaria</option><option>Secundaria</option></select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Tanda</label>
-                      <select name="shift" value={formData.shift} onChange={handleChange} style={inputStyle}><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
-                  </div>
+                  <div style={{position:'relative'}}><label style={labelStyle}>Nivel</label><select name="level" value={formData.level} onChange={handleChange} style={inputStyle}><option>Primaria</option><option>Secundaria</option></select></div>
+                  <div style={{position:'relative'}}><label style={labelStyle}>Tanda</label><select name="shift" value={formData.shift} onChange={handleChange} style={inputStyle}><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select></div>
               </div>
-              
-              {/* Fila 3: Grado, Sección, Numero */}
               <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px'}}>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Grado</label>
-                      <select name="grade" value={formData.grade} onChange={handleChange} style={inputStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}>Sección</label>
-                      <select name="section" value={formData.section} onChange={handleChange} style={inputStyle}>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
-                  </div>
-                  <div style={{position:'relative'}}>
-                      <label style={labelStyle}># Lista</label>
-                      <input name="listNumber" type="number" min="1" placeholder="#" value={formData.listNumber} onChange={handleChange} style={inputStyle}/>
-                  </div>
+                  <div style={{position:'relative'}}><label style={labelStyle}>Grado</label><select name="grade" value={formData.grade} onChange={handleChange} style={inputStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select></div>
+                  <div style={{position:'relative'}}><label style={labelStyle}>Sección</label><select name="section" value={formData.section} onChange={handleChange} style={inputStyle}>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select></div>
+                  <div style={{position:'relative'}}><label style={labelStyle}># Lista</label><input name="listNumber" type="number" min="1" placeholder="#" value={formData.listNumber} onChange={handleChange} style={inputStyle}/></div>
               </div>
-
-              {/* Fila 4: Fecha Nacimiento y Foto (NUEVO) */}
               <div style={{display:'flex', gap:'8px', alignItems:'end'}}>
-                  <div style={{flex:1, position:'relative'}}>
-                      <label style={labelStyle}>Fecha Nac.</label>
-                      <input type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} style={inputStyle} />
-                  </div>
-                  <div style={{flex:1}}>
-                      <input id="photoInput" type="file" accept="image/*" onChange={handleFileChange} style={{fontSize: '10px'}}/>
-                  </div>
+                  <div style={{flex:1, position:'relative'}}><label style={labelStyle}>Fecha Nac.</label><input type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} style={inputStyle} /></div>
+                  <div style={{flex:1}}><input id="photoInput" type="file" accept="image/*" onChange={handleFileChange} style={{fontSize: '10px'}}/></div>
               </div>
-
               <div style={{display: 'flex', gap: '10px', marginTop:'5px'}}>
                   {editingId && <button type="button" onClick={()=>{setEditingId(null); setFormData({name:'', studentId:'', level:'Primaria', shift:'Matutina', grade:'4to', section:'A', listNumber:'', birthDate:''});}} style={{padding:'10px', background:'#9ca3af', color:'white', border:'none', borderRadius:'8px', flex: 1}}>Cancelar</button>}
-                  <button type="submit" disabled={loading} style={{padding:'10px', background: editingId?'#f59e0b':'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold', flex: 2}}>
-                      {loading ? 'Guardando...' : (editingId ? 'Actualizar Alumno' : 'Guardar Alumno')}
-                  </button>
+                  <button type="submit" disabled={loading} style={{padding:'10px', background: editingId?'#f59e0b':'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold', flex: 2}}>{loading ? 'Guardando...' : (editingId ? 'Actualizar' : 'Guardar')}</button>
               </div>
            </form>
         </div>
       )}
 
-      {/* BARRA DE FILTROS DE VISTA (SUPERIOR) */}
       <div style={{background:'#f8fafc', padding:'10px', borderRadius:'8px', border:'1px solid #e2e8f0', marginBottom:'15px'}}>
           <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', marginBottom:'5px', display:'flex', alignItems:'center', gap:'5px'}}><Filter size={12}/> Filtrar Lista:</div>
-          
-          {/* Fila de Selectores */}
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'5px', marginBottom:'8px'}}>
               <select value={viewFilters.level} onChange={e=>setViewFilters({...viewFilters, level:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
               <select value={viewFilters.shift} onChange={e=>setViewFilters({...viewFilters, shift:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
               <select value={viewFilters.grade} onChange={e=>setViewFilters({...viewFilters, grade:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
               <select value={viewFilters.section} onChange={e=>setViewFilters({...viewFilters, section:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
           </div>
-          
-          {/* Buscador Texto */}
           <div style={{position:'relative'}}>
               <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
               <input placeholder="Buscar por nombre o ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'6px 6px 6px 28px', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'13px', boxSizing:'border-box'}}/>
           </div>
       </div>
 
-      {/* LISTA DE ALUMNOS (DISEÑO TARJETA) */}
       <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
          <div style={{fontSize:'12px', color:'#666', textAlign:'right'}}>{filteredStudents.length} alumnos encontrados</div>
-         
          {filteredStudents.length === 0 ? <p style={{textAlign: 'center', color: '#999', padding:'20px'}}>No hay resultados.</p> : 
-             filteredStudents.map(s => (
+             paginatedStudents.map(s => (
                <div key={s.id} style={{padding:'10px', background:'white', borderRadius:'8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', borderLeft: `4px solid ${s.photoUrl ? '#10b981' : '#cbd5e1'}`}}>
-                  
                   <div style={{display:'flex', gap:'12px', alignItems:'center'}}>
-                     {/* FOTO O AVATAR */}
                      <div style={{position:'relative'}}>
-                         {s.photoUrl ? (
-                             <img src={s.photoUrl} style={{width:'45px', height:'45px', borderRadius:'50%', objectFit:'cover', border:'1px solid #eee'}}/>
-                         ) : (
-                             <div style={{width:'45px', height:'45px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}>
-                                 <User size={20} color="#94a3b8"/>
-                             </div>
-                         )}
-                         <div style={{position:'absolute', bottom:'-2px', right:'-2px', background:'#3b82f6', color:'white', width:'18px', height:'18px', borderRadius:'50%', fontSize:'10px', display:'grid', placeItems:'center', fontWeight:'bold'}}>
-                             {s.listNumber}
-                         </div>
+                         {s.photoUrl ? <img src={s.photoUrl} style={{width:'45px', height:'45px', borderRadius:'50%', objectFit:'cover', border:'1px solid #eee'}}/> : <div style={{width:'45px', height:'45px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={20} color="#94a3b8"/></div>}
+                         <div style={{position:'absolute', bottom:'-2px', right:'-2px', background:'#3b82f6', color:'white', width:'18px', height:'18px', borderRadius:'50%', fontSize:'10px', display:'grid', placeItems:'center', fontWeight:'bold'}}>{s.listNumber}</div>
                      </div>
-
-                     {/* INFO */}
                      <div>
                         <div style={{fontWeight: '600', color: '#333', fontSize:'15px'}}>{s.name}</div>
                         <div style={{fontSize: '12px', color: '#666', display:'flex', gap:'5px', flexWrap:'wrap'}}>
                            <span style={{background:'#eff6ff', color:'#1d4ed8', padding:'1px 4px', borderRadius:'4px'}}>{s.grade} {s.section}</span>
-                           <span>• {s.level === 'Primaria' ? 'Pri' : 'Sec'}</span>
                            {s.studentId && <span style={{color:'#666'}}>• ID:{s.studentId}</span>}
                         </div>
                         {s.birthDate && <div style={{fontSize:'11px', color:'#999', display:'flex', alignItems:'center', gap:'3px'}}><Calendar size={10}/> {s.birthDate}</div>}
                      </div>
                   </div>
-
-                  {/* BOTONES */}
                   <div style={{display: 'flex', gap: '5px'}}>
+                     {/* BOTÓN PORTAFOLIO QUE NAVEGA */}
+                     <button onClick={() => onNavigate && onNavigate('gallery', s.id)} style={{background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius:'6px', padding:'6px', cursor: 'pointer'}} title="Ver Portafolio"><Folder size={16} color="#2563eb"/></button>
                      <button onClick={() => handleEdit(s)} style={{background: '#fffbeb', border: '1px solid #fde68a', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Edit2 size={16} color="#d97706"/></button>
                      <button onClick={() => handleDelete(s.id)} style={{background: '#fef2f2', border: '1px solid #fecaca', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Trash2 size={16} color="#dc2626"/></button>
                   </div>
@@ -380,11 +304,18 @@ export function StudentForm() {
              ))
          }
       </div>
+      
+      {filteredStudents.length > itemsPerPage && (
+          <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '15px'}}>
+              <button disabled={currentPage===1} onClick={()=>setCurrentPage(c=>c-1)} style={btnSecondaryStyle}>Anterior</button>
+              <span style={{alignSelf:'center'}}>Pag {currentPage}</span>
+              <button disabled={paginatedStudents.length < itemsPerPage} onClick={()=>setCurrentPage(c=>c+1)} style={btnSecondaryStyle}>Siguiente</button>
+          </div>
+      )}
     </div>
   );
 }
 
-// ESTILOS
 const inputStyle = { padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize:'13px' };
 const filterSelectStyle = { padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', width:'100%' };
 const labelStyle = { fontSize: '10px', fontWeight: 'bold', color: '#6b7280', position:'absolute', top:'-6px', left:'5px', background:'white', padding:'0 2px' };
