@@ -7,9 +7,9 @@ import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'fi
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
-  FolderPlus, Film, X, Camera, Check, 
-  Filter, Search, Calendar, CheckSquare, Square,
-  RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, Image as ImageIcon,
+  FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
+  User, Filter, Search, Calendar, CheckSquare, Square, // <--- AQUÍ ESTABA EL ERROR (User)
+  RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, 
   Smile, Meh, Frown, Lock, Unlock
 } from 'lucide-react';
 
@@ -24,11 +24,13 @@ export function CaptureForm() {
   const [loading, setLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   
-  const [allActivities, setAllActivities] = useState([]);
-  const [suggestions, setSuggestions] = useState([]);
-  const [recentActivities, setRecentActivities] = useState([]);
-  const [keepData, setKeepData] = useState(false);
+  // --- ESTADOS INTELIGENTES ---
+  const [allActivities, setAllActivities] = useState([]); 
+  const [suggestions, setSuggestions] = useState([]); 
+  const [recentActivities, setRecentActivities] = useState([]); 
+  const [keepData, setKeepData] = useState(false); 
 
+  // --- ESTADOS DE ALUMNOS Y FILTROS ---
   const [students, setStudents] = useState([]); 
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [filters, setFilters] = useState(() => {
@@ -37,7 +39,7 @@ export function CaptureForm() {
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados Cámara
+  // --- ESTADOS CÁMARA ---
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
@@ -53,31 +55,23 @@ export function CaptureForm() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  
   const nativeVideoInputRef = useRef(null);
   const nativePhotoInputRef = useRef(null);
 
   const AVAILABLE_TAGS = ['Evaluación', 'Práctica', 'Torneo', 'Conducta', 'Juego Libre'];
 
-  // --- LOGICA BOTÓN ATRÁS (NUEVO) ---
+  // --- LOGICA BOTÓN ATRÁS ---
   useEffect(() => {
     if (isCameraOpen) {
-      // Empujamos un estado al historial para "atrapar" el botón atrás
       window.history.pushState({ cameraOpen: true }, "");
-      
-      const handlePopState = () => {
-        // Si el usuario da atrás, cerramos la cámara en lugar de salir
-        stopCamera(); 
-      };
-
+      const handlePopState = () => stopCamera(); 
       window.addEventListener("popstate", handlePopState);
-
-      return () => {
-        window.removeEventListener("popstate", handlePopState);
-      };
+      return () => window.removeEventListener("popstate", handlePopState);
     }
   }, [isCameraOpen]);
 
-  // --- CARGA INICIAL ---
+  // --- 1. CARGA INICIAL ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -97,6 +91,7 @@ export function CaptureForm() {
             setAllActivities(uniqueNames);
             setRecentActivities(uniqueNames.slice(0, 5));
         });
+
         return () => { unsubStudents(); unsubHistory(); };
       } else { setStudents([]); }
     });
@@ -105,6 +100,7 @@ export function CaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
+  // --- FIX CÁMARA ---
   useEffect(() => {
     if (isCameraOpen && videoRef.current && cameraStream) {
         videoRef.current.srcObject = cameraStream;
@@ -146,13 +142,14 @@ export function CaptureForm() {
   // --- CÁMARA ---
   const startCamera = async () => {
     try {
-      if (cameraStream) stopCamera();
+      if (cameraStream) { cameraStream.getTracks().forEach(track => track.stop()); }
       const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, 
           audio: cameraMode === 'video' 
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
+      
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
       if (capabilities.zoom) setZoomCap(capabilities.zoom); else setZoomCap(null);
@@ -165,11 +162,14 @@ export function CaptureForm() {
     setCameraStream(null);
     setIsRecording(false);
     clearInterval(timerRef.current);
-    // Limpiar historial si cerramos manualmente
-    // (Opcional, a veces causa doble back, pero es seguro dejarlo así)
   };
 
-  const toggleFacingMode = () => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+  const toggleFacingMode = () => {
+      setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+      // Al cambiar modo, cerramos momentáneamente para reiniciar en el useEffect
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+  };
+  
   useEffect(() => { if(isCameraOpen && !cameraStream) startCamera(); }, [facingMode, isCameraOpen]);
 
   const handleZoom = (e) => {
@@ -263,11 +263,12 @@ export function CaptureForm() {
   const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
   const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
+  // --- GUARDADO ---
   const handleSave = async (e) => {
     e.preventDefault();
-    if (files.length === 0 || !activity) return toast.error("Falta archivo o actividad");
+    if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
     setLoading(true);
-    const loadingToast = toast.loading(`Subiendo ${files.length}...`);
+    const loadingToast = toast.loading(`Subiendo ${files.length} archivos...`);
     try {
       const now = new Date();
       const [year, month, day] = customDate.split('-').map(Number);
@@ -309,9 +310,16 @@ export function CaptureForm() {
       return { bg: 'white', border: '#e5e7eb', color: '#6b7280' };
   };
 
+  const activePerf = {
+    logrado: { background:'#ecfdf5', borderColor:'#10b981', color:'#047857' },
+    proceso: { background:'#fffbeb', borderColor:'#f59e0b', color:'#b45309' },
+    apoyo: { background:'#fef2f2', borderColor:'#ef4444', color:'#b91c1c' }
+  };
+
   return (
     <div style={{ paddingBottom:'20px' }}>
       
+      {/* CÁMARA OVERLAY */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(0,0,0,0.3)', position:'absolute', top:0, left:0, right:0, zIndex:10}}>
@@ -321,8 +329,10 @@ export function CaptureForm() {
                 </div>
                 {isRecording && <div style={{color:'#ef4444', fontWeight:'bold', fontSize:'18px', display:'flex', alignItems:'center', gap:'5px'}}><div style={{width:10, height:10, background:'red', borderRadius:'50%'}}></div> {formatTime(recordingTime)}</div>}
             </div>
+            
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
+            
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
                 {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} /><span style={{color:'white', fontSize:'12px'}}>{zoom}x</span></div>)}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -369,11 +379,7 @@ export function CaptureForm() {
                         ))}
                     </div>
                 )}
-                <input 
-                    type="text" value={activity} onChange={handleActivityChange} placeholder="Ej: Baloncesto, Voleibol..." 
-                    style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} 
-                    onBlur={() => setTimeout(() => setSuggestions([]), 200)}
-                />
+                <input type="text" value={activity} onChange={handleActivityChange} placeholder="Ej: Baloncesto..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} onBlur={() => setTimeout(() => setSuggestions([]), 200)}/>
                 {suggestions.length > 0 && (
                     <ul style={{position:'absolute', top:'100%', left:0, right:0, background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
                         {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
@@ -391,7 +397,6 @@ export function CaptureForm() {
             <input type="file" accept="video/*" capture="environment" ref={nativeVideoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
             <input type="file" accept="image/*" capture="environment" ref={nativePhotoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
 
-            {/* BOTONES ENTRADA */}
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px'}}>
                 <button type="button" onClick={startCamera} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Camera size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Web</div></button>
                 <button type="button" onClick={openNativePhoto} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><ImageIcon size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Foto</div></button>
@@ -399,7 +404,6 @@ export function CaptureForm() {
                 <label style={{border:'1px solid #ddd', background:'white', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><FolderPlus size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Galería</div><input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} /></label>
             </div>
 
-            {/* PREVIEW */}
             {files.length > 0 && (
                 <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
                     {files.map((f, i) => (
@@ -413,7 +417,6 @@ export function CaptureForm() {
 
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
 
-            {/* ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
@@ -448,7 +451,6 @@ export function CaptureForm() {
               </div>
             </div>
 
-            {/* EVALUACIÓN */}
             <div style={{background:'#f9fafb', padding:'15px', borderRadius:'12px', border:'1px solid #e5e7eb'}}>
                 <label style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'8px', display:'block'}}>EVALUACIÓN (OPCIONAL)</label>
                 <div style={{display:'flex', gap:'10px', marginBottom:'15px'}}>
