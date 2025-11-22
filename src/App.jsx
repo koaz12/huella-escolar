@@ -83,7 +83,20 @@ function App() {
       </div>
 
       {/* BARRA INFERIOR */}
-      <div style={{ flexShrink: 0, backgroundColor: 'white', borderTop: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-around', padding: '8px 0', paddingBottom: 'safe-area-inset-bottom', zIndex: 100 }}>
+      <div style={{ 
+        flexShrink: 0,
+        backgroundColor: 'white', 
+        borderTop: '1px solid #e1e4e8',
+        display: 'flex', 
+        justifyContent: 'space-around',
+        padding: '8px 0',
+        
+        /* ESTO ES LO QUE EVITA QUE LOS BOTONES SE PEGUEN AL FONDO */
+        /* Usamos una suma: 10px de aire + lo que pida el celular */
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', 
+        
+        zIndex: 100
+      }}>
           <NavButton icon={<Camera size={24} />} label="Captura" active={view==='capture'} onClick={() => navigateTo('capture')} />
           <NavButton icon={<ImageIcon size={24} />} label="Galería" active={view==='gallery'} onClick={() => navigateTo('gallery')} />
           <NavButton icon={<Users size={24} />} label="Alumnos" active={view==='students'} onClick={() => navigateTo('students')} />
