@@ -7,13 +7,13 @@ import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'fi
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
-  FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
+  FolderPlus, Film, X, Camera, Check, 
   User, Filter, Search, Calendar, CheckSquare, Square,
-  RefreshCw, Zap, ZoomIn, Video, Smartphone // <--- Nuevo icono Smartphone
+  RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, Image as ImageIcon
 } from 'lucide-react';
 
 export function CaptureForm() {
-  // ... (MISMOS ESTADOS DE SIEMPRE) ...
+  // --- ESTADOS DE DATOS ---
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState([]); 
@@ -22,16 +22,17 @@ export function CaptureForm() {
   const [loading, setLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   
+  // --- ESTADOS DE ALUMNOS Y FILTROS ---
   const [students, setStudents] = useState([]); 
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
   const [filters, setFilters] = useState(() => {
       const saved = localStorage.getItem('captureFilters');
-      return saved ? JSON.parse(saved) : { level: 'Primaria', shift: 'Matutina', grade: 'Todos', section: 'Todos' };
+      return saved ? JSON.parse(saved) : { level: 'Todos', shift: 'Todos', grade: 'Todos', section: 'Todos' };
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados Cámara Interna
+  // --- ESTADOS CÁMARA INTERNA ---
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
@@ -47,11 +48,14 @@ export function CaptureForm() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
-  const nativeVideoInputRef = useRef(null); // <--- REFERENCIA PARA INPUT NATIVO
+  
+  // Refs para inputs nativos
+  const nativeVideoInputRef = useRef(null);
+  const nativePhotoInputRef = useRef(null);
 
   const AVAILABLE_TAGS = ['Evaluación', 'Práctica', 'Torneo', 'Conducta', 'Juego Libre'];
 
-  // ... (USE EFFECTS DE CARGA DE DATOS IGUALES QUE ANTES) ...
+  // --- 1. CARGA INICIAL ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -62,11 +66,16 @@ export function CaptureForm() {
           arr.sort((a, b) => (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0));
           setStudents(arr);
         });
-        const qRecent = query(collection(db, "evidence"), where("teacherId", "==", user.uid), orderBy("date", "desc"), limit(20));
+        
+        // Cargar Actividades recientes únicas
+        const qRecent = query(collection(db, "evidence"), where("teacherId", "==", user.uid), orderBy("date", "desc"), limit(50));
         const unsubRecent = onSnapshot(qRecent, (qs) => {
             const names = new Set();
-            qs.forEach(doc => names.add(doc.data().activityName));
-            setRecentActivities([...names]);
+            qs.forEach(doc => {
+                const act = doc.data().activityName;
+                if(act) names.add(act); // Guardar nombre tal cual
+            });
+            setRecentActivities(Array.from(names).slice(0, 5)); // Solo las ultimas 5 únicas
         });
         return () => { unsubStudents(); unsubRecent(); };
       } else { setStudents([]); }
@@ -82,7 +91,7 @@ export function CaptureForm() {
     }
   }, [isCameraOpen, cameraStream]);
 
-  // ... (LÓGICA DE FILTRADO Y SELECT IGUAL QUE ANTES) ...
+  // --- LÓGICA FILTRADO ---
   const visibleStudents = students.filter(student => {
     if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filters.level !== 'Todos' && student.level !== filters.level) return false;
@@ -104,26 +113,19 @@ export function CaptureForm() {
     else setSelectedStudents([...selectedStudents, id]);
   };
 
-  // --- OPTIMIZACIÓN: CÁMARA INTERNA A 720p ---
+  // --- LÓGICA CÁMARA INTERNA ---
   const startCamera = async () => {
     try {
       if (cameraStream) stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-              facingMode: facingMode, 
-              // CAMBIO CLAVE: Bajamos a 720p para evitar LAG en web
-              width: { ideal: 1280 }, 
-              height: { ideal: 720 } 
-          }, 
+          video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, 
           audio: cameraMode === 'video' 
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
-      
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-      if (capabilities.zoom) setZoomCap(capabilities.zoom);
-      else setZoomCap(null);
+      if (capabilities.zoom) setZoomCap(capabilities.zoom); else setZoomCap(null);
     } catch (err) { toast.error("Error cámara: " + err.message); }
   };
 
@@ -135,7 +137,6 @@ export function CaptureForm() {
     clearInterval(timerRef.current);
   };
 
-  // ... (TOGGLE FACING, ZOOM, FLASH IGUAL QUE ANTES) ...
   const toggleFacingMode = () => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
   useEffect(() => { if(isCameraOpen && !cameraStream) startCamera(); }, [facingMode, isCameraOpen]);
 
@@ -156,7 +157,6 @@ export function CaptureForm() {
       if (track.applyConstraints) track.applyConstraints({ advanced: [{ torch: newStatus }] }).catch(() => toast("Flash no soportado"));
   };
 
-  // --- FUNCIONES DE CAPTURA ---
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -172,17 +172,15 @@ export function CaptureForm() {
         const file = new File([blob], fileName, { type: 'image/jpeg' });
         setFiles(prev => [...prev, file]);
         toast.success("¡Foto capturada!", { duration: 1000, icon: '📸' });
-    }, 'image/jpeg', 0.85); // Calidad un poco más baja para velocidad
+    }, 'image/jpeg', 0.85);
   };
 
   const startRecording = () => {
       if (!cameraStream) return;
       chunksRef.current = [];
       try {
-          // Intentamos usar un bitrate menor para fluidez
           const options = { mimeType: 'video/webm;codecs=vp8', videoBitsPerSecond: 1500000 }; 
           const mediaRecorder = new MediaRecorder(cameraStream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
-          
           mediaRecorderRef.current = mediaRecorder;
           mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
           mediaRecorder.onstop = () => {
@@ -213,12 +211,9 @@ export function CaptureForm() {
       return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // --- NUEVO: FUNCIÓN PARA ABRIR CÁMARA NATIVA DE VIDEO ---
-  const openNativeVideo = () => {
-      if (nativeVideoInputRef.current) {
-          nativeVideoInputRef.current.click();
-      }
-  };
+  // --- TRIGGERS CÁMARA NATIVA ---
+  const openNativeVideo = () => { if (nativeVideoInputRef.current) nativeVideoInputRef.current.click(); };
+  const openNativePhoto = () => { if (nativePhotoInputRef.current) nativePhotoInputRef.current.click(); };
 
   const handleFilesChange = (e) => { 
     const selectedFiles = Array.from(e.target.files); 
@@ -230,7 +225,6 @@ export function CaptureForm() {
         else validFiles.push(file);
     });
     setFiles(prev => [...prev, ...validFiles]); 
-    // Limpiar input para permitir seleccionar lo mismo otra vez
     e.target.value = "";
   };
   
@@ -238,7 +232,7 @@ export function CaptureForm() {
   const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
   const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
-  // --- GUARDADO (IGUAL QUE ANTES) ---
+  // --- GUARDADO ---
   const handleSave = async (e) => {
     e.preventDefault();
     if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
@@ -282,10 +276,9 @@ export function CaptureForm() {
   return (
     <div style={{ paddingBottom:'20px' }}>
       
-      {/* CÁMARA INTERNA OVERLAY */}
+      {/* CÁMARA OVERLAY WEB (Rápida) */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
-            {/* ... (INTERFAZ CÁMARA PRO IGUAL QUE ANTES) ... */}
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(0,0,0,0.3)', position:'absolute', top:0, left:0, right:0, zIndex:10}}>
                 <div style={{display:'flex', gap:'20px'}}>
                     <button onClick={toggleFacingMode} style={{background:'none', border:'none', color:'white'}}><RefreshCw size={24}/></button>
@@ -296,17 +289,9 @@ export function CaptureForm() {
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
-                {zoomCap && (
-                    <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}>
-                        <ZoomIn size={20} color="white"/>
-                        <input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} />
-                        <span style={{color:'white', fontSize:'12px'}}>{zoom}x</span>
-                    </div>
-                )}
+                {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} /><span style={{color:'white', fontSize:'12px'}}>{zoom}x</span></div>)}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}>
-                        <Check size={30} color="#10b981"/> <span style={{fontSize:'10px'}}>Listo ({files.length})</span>
-                    </button>
+                    <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}><Check size={30} color="#10b981"/> <span style={{fontSize:'10px'}}>Listo ({files.length})</span></button>
                     <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'10px'}}>
                         {cameraMode === 'photo' ? (
                             <button onClick={capturePhoto} style={{ width:'70px', height:'70px', borderRadius:'50%', background:'white', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}><div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid black'}}></div></button>
@@ -325,6 +310,7 @@ export function CaptureForm() {
       )}
 
       <div style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
+          
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
               <h3 style={{margin: 0, color: '#1f2937'}}>📸 Nueva Evidencia</h3>
               <div style={{position:'relative'}}>
@@ -334,10 +320,36 @@ export function CaptureForm() {
           </div>
 
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            
+            {/* SECCIÓN ACTIVIDAD (MEJORADA CON CHIPS RECIENTES) */}
             <div>
                 <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
-                <input list="activities-list" type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ej: Baloncesto, Voleibol..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} />
-                <datalist id="activities-list">{recentActivities.map((act, i) => <option key={i} value={act} />)}</datalist>
+                
+                {/* CHIPS DE ACTIVIDADES RECIENTES */}
+                {recentActivities.length > 0 && (
+                    <div style={{display:'flex', gap:'8px', overflowX:'auto', paddingBottom:'8px', marginBottom:'5px'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:'4px', color:'#666', fontSize:'10px', whiteSpace:'nowrap'}}><Clock size={10}/> Recientes:</div>
+                        {recentActivities.map((act, i) => (
+                            <button 
+                                key={i} 
+                                type="button" 
+                                onClick={() => setActivity(act)}
+                                style={{fontSize:'11px', padding:'4px 10px', borderRadius:'12px', border:'1px solid #ddd', background: activity === act ? '#dbeafe' : '#f3f4f6', color: activity === act ? '#1e40af' : '#4b5563', whiteSpace:'nowrap', cursor:'pointer'}}
+                            >
+                                {act}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <input 
+                    type="text" 
+                    value={activity} 
+                    onChange={(e) => setActivity(e.target.value)} 
+                    placeholder="Ej: Baloncesto, Voleibol..." 
+                    style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} 
+                />
+                
                 <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'8px'}}>
                     {AVAILABLE_TAGS.map(tag => (
                         <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
@@ -347,39 +359,39 @@ export function CaptureForm() {
                 </div>
             </div>
 
-            {/* INPUT OCULTO PARA VIDEO NATIVO */}
-            <input 
-                type="file" 
-                accept="video/*" 
-                capture="environment" 
-                ref={nativeVideoInputRef} 
-                onChange={handleFilesChange} 
-                style={{display:'none'}} 
-            />
+            {/* INPUTS OCULTOS PARA NATIVOS */}
+            <input type="file" accept="video/*" capture="environment" ref={nativeVideoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
+            <input type="file" accept="image/*" capture="environment" ref={nativePhotoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
 
-            {/* BOTONES DE ENTRADA (MODIFICADOS) */}
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px'}}>
-                {/* 1. Cámara Web (Para fotos rápidas) */}
-                <button type="button" onClick={startCamera} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <Camera size={24}/>
-                    <div style={{fontWeight:'bold', fontSize:'11px'}}>Cámara Web</div>
+            {/* BOTONES DE ENTRADA (4 BOTONES) */}
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px'}}>
+                {/* 1. Web Cam */}
+                <button type="button" onClick={startCamera} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}>
+                    <Camera size={20}/>
+                    <div style={{fontWeight:'bold', fontSize:'9px'}}>Web</div>
                 </button>
 
-                {/* 2. Cámara NATIVA (Para video fluido) */}
-                <button type="button" onClick={openNativeVideo} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <Smartphone size={24}/>
-                    <div style={{fontWeight:'bold', fontSize:'11px'}}>Video Nativo</div>
+                {/* 2. Nativa Foto */}
+                <button type="button" onClick={openNativePhoto} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}>
+                    <ImageIcon size={20}/>
+                    <div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Foto</div>
                 </button>
 
-                {/* 3. Galería */}
-                <label style={{border:'1px solid #ddd', background:'white', padding:'10px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <FolderPlus size={24}/>
-                    <div style={{fontWeight:'bold', fontSize:'11px'}}>Galería</div>
+                {/* 3. Nativa Video */}
+                <button type="button" onClick={openNativeVideo} style={{border:'none', background:'#fef2f2', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#dc2626', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}>
+                    <Smartphone size={20}/>
+                    <div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Video</div>
+                </button>
+
+                {/* 4. Galería */}
+                <label style={{border:'1px solid #ddd', background:'white', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}>
+                    <FolderPlus size={20}/>
+                    <div style={{fontWeight:'bold', fontSize:'9px'}}>Galería</div>
                     <input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} />
                 </label>
             </div>
 
-            {/* ... (EL RESTO DEL ARCHIVO SIGUE IGUAL: PREVIEWS, TEXTAREA, ALUMNOS, GUARDAR) ... */}
+            {/* PREVIEWS DE ARCHIVOS */}
             {files.length > 0 && (
                 <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
                     {files.map((f, i) => (
@@ -391,18 +403,23 @@ export function CaptureForm() {
                 </div>
             )}
 
-            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios sobre la clase..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
 
+            {/* SECCIÓN DE ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
               </div>
+              
+              {/* FILTROS CLAROS */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
-                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
-                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
+                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option value="Todos">Todos los Niveles</option><option>Primaria</option><option>Secundaria</option></select>
+                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option value="Todos">Todas las Tandas</option><option>Matutina</option><option>Vespertina</option></select>
+                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option value="Todos">Todos los Grados</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option value="Todos">Todas las Secciones</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
               </div>
+              
+              {/* BUSCADOR + BOTÓN TOGGLE */}
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
                   <div style={{position:'relative', flex:1}}>
                       <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
@@ -412,6 +429,8 @@ export function CaptureForm() {
                       {visibleStudents.length>0 && visibleStudents.every(s=>selectedStudents.includes(s.id)) ? <><Square size={14}/> Ninguno</> : <><CheckSquare size={14}/> Todos</>}
                   </button>
               </div>
+
+              {/* GRILLA DE ALUMNOS */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
                 {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
                 {visibleStudents.map(student => {
