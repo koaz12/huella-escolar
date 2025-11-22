@@ -3,13 +3,13 @@ import { useState, useEffect, useRef } from 'react';
 import { saveOffline } from '../db';
 import { db, storage, auth } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, onSnapshot, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
-  FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
-  User, Filter, Search, Calendar, CheckSquare, Square,
-  RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, 
+  FolderPlus, Film, X, Camera, Check, 
+  Filter, Search, Calendar, CheckSquare, Square,
+  RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, Image as ImageIcon,
   Smile, Meh, Frown, Lock, Unlock
 } from 'lucide-react';
 
@@ -18,19 +18,17 @@ export function CaptureForm() {
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState([]); 
-  const [performance, setPerformance] = useState(''); // NUEVO: Evaluación
+  const [performance, setPerformance] = useState(''); 
   const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]); 
   const [files, setFiles] = useState([]); 
   const [loading, setLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   
-  // --- ESTADOS INTELIGENTES ---
-  const [allActivities, setAllActivities] = useState([]); // Histórico completo para autocompletar
-  const [suggestions, setSuggestions] = useState([]); // Sugerencias al escribir
-  const [recentActivities, setRecentActivities] = useState([]); // Los chips de arriba
-  const [keepData, setKeepData] = useState(false); // MODO RÁFAGA
+  const [allActivities, setAllActivities] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [keepData, setKeepData] = useState(false);
 
-  // --- ESTADOS DE ALUMNOS Y FILTROS ---
   const [students, setStudents] = useState([]); 
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [filters, setFilters] = useState(() => {
@@ -39,7 +37,7 @@ export function CaptureForm() {
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // --- ESTADOS CÁMARA ---
+  // Estados Cámara
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
@@ -55,17 +53,34 @@ export function CaptureForm() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
-  
   const nativeVideoInputRef = useRef(null);
   const nativePhotoInputRef = useRef(null);
 
   const AVAILABLE_TAGS = ['Evaluación', 'Práctica', 'Torneo', 'Conducta', 'Juego Libre'];
 
-  // --- 1. CARGA INICIAL INTELIGENTE ---
+  // --- LOGICA BOTÓN ATRÁS (NUEVO) ---
+  useEffect(() => {
+    if (isCameraOpen) {
+      // Empujamos un estado al historial para "atrapar" el botón atrás
+      window.history.pushState({ cameraOpen: true }, "");
+      
+      const handlePopState = () => {
+        // Si el usuario da atrás, cerramos la cámara en lugar de salir
+        stopCamera(); 
+      };
+
+      window.addEventListener("popstate", handlePopState);
+
+      return () => {
+        window.removeEventListener("popstate", handlePopState);
+      };
+    }
+  }, [isCameraOpen]);
+
+  // --- CARGA INICIAL ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // A. Alumnos
         const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
         const unsubStudents = onSnapshot(q, (qs) => {
           const arr = [];
@@ -74,20 +89,14 @@ export function CaptureForm() {
           setStudents(arr);
         });
         
-        // B. Actividades (Histórico para autocompletar)
-        // Traemos las últimas 100 evidencias para tener una buena base de nombres
         const qHistory = query(collection(db, "evidence"), where("teacherId", "==", user.uid), orderBy("date", "desc"), limit(100));
         const unsubHistory = onSnapshot(qHistory, (qs) => {
             const namesSet = new Set();
-            qs.forEach(doc => {
-                const act = doc.data().activityName;
-                if(act) namesSet.add(act);
-            });
+            qs.forEach(doc => { const act = doc.data().activityName; if(act) namesSet.add(act); });
             const uniqueNames = Array.from(namesSet);
             setAllActivities(uniqueNames);
-            setRecentActivities(uniqueNames.slice(0, 5)); // Las 5 más recientes para los chips
+            setRecentActivities(uniqueNames.slice(0, 5));
         });
-
         return () => { unsubStudents(); unsubHistory(); };
       } else { setStudents([]); }
     });
@@ -96,31 +105,23 @@ export function CaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
-  // Fix cámara video ref
   useEffect(() => {
     if (isCameraOpen && videoRef.current && cameraStream) {
         videoRef.current.srcObject = cameraStream;
     }
   }, [isCameraOpen, cameraStream]);
 
-  // --- BUSCADOR PREDICTIVO DE ACTIVIDAD ---
+  // --- HANDLERS ---
   const handleActivityChange = (e) => {
       const val = e.target.value;
       setActivity(val);
       if (val.length > 1) {
           const matches = allActivities.filter(a => a.toLowerCase().includes(val.toLowerCase()));
           setSuggestions(matches);
-      } else {
-          setSuggestions([]);
-      }
+      } else { setSuggestions([]); }
   };
+  const selectActivity = (name) => { setActivity(name); setSuggestions([]); };
 
-  const selectActivity = (name) => {
-      setActivity(name);
-      setSuggestions([]);
-  };
-
-  // --- FILTRADO ALUMNOS ---
   const visibleStudents = students.filter(student => {
     if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filters.level !== 'Todos' && student.level !== filters.level) return false;
@@ -142,7 +143,7 @@ export function CaptureForm() {
     else setSelectedStudents([...selectedStudents, id]);
   };
 
-  // --- CÁMARA & ARCHIVOS ---
+  // --- CÁMARA ---
   const startCamera = async () => {
     try {
       if (cameraStream) stopCamera();
@@ -152,11 +153,9 @@ export function CaptureForm() {
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
-      
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-      if (capabilities.zoom) setZoomCap(capabilities.zoom);
-      else setZoomCap(null);
+      if (capabilities.zoom) setZoomCap(capabilities.zoom); else setZoomCap(null);
     } catch (err) { toast.error("Error cámara: " + err.message); }
   };
 
@@ -166,6 +165,8 @@ export function CaptureForm() {
     setCameraStream(null);
     setIsRecording(false);
     clearInterval(timerRef.current);
+    // Limpiar historial si cerramos manualmente
+    // (Opcional, a veces causa doble back, pero es seguro dejarlo así)
   };
 
   const toggleFacingMode = () => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
@@ -202,7 +203,7 @@ export function CaptureForm() {
         const fileName = `capture_${Date.now()}.jpg`;
         const file = new File([blob], fileName, { type: 'image/jpeg' });
         setFiles(prev => [...prev, file]);
-        toast.success("¡Foto capturada!", { duration: 1000, icon: '📸' });
+        toast.success("Capturado", { duration: 1000, icon: '📸' });
     }, 'image/jpeg', 0.85);
   };
 
@@ -218,8 +219,8 @@ export function CaptureForm() {
               const blob = new Blob(chunksRef.current, { type: 'video/mp4' });
               const fileName = `video_${Date.now()}.mp4`;
               const file = new File([blob], fileName, { type: 'video/mp4' });
-              if (file.size > 50 * 1024 * 1024) toast.error("Video muy pesado (>50MB). Descartado.");
-              else { setFiles(prev => [...prev, file]); toast.success("¡Video guardado!", {icon: '🎥'}); }
+              if (file.size > 50 * 1024 * 1024) toast.error("Video muy pesado. Descartado.");
+              else { setFiles(prev => [...prev, file]); toast.success("Guardado", {icon: '🎥'}); }
               setRecordingTime(0);
           };
           mediaRecorder.start();
@@ -251,7 +252,7 @@ export function CaptureForm() {
     const validFiles = [];
     const MAX_VIDEO_SIZE = 50 * 1024 * 1024; 
     selectedFiles.forEach(file => {
-        if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) toast.error(`⚠️ Video pesado ignorado.`);
+        if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) toast.error(`Video pesado ignorado.`);
         else validFiles.push(file);
     });
     setFiles(prev => [...prev, ...validFiles]); 
@@ -262,12 +263,11 @@ export function CaptureForm() {
   const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
   const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
-  // --- GUARDADO FINAL CON TODO ---
   const handleSave = async (e) => {
     e.preventDefault();
-    if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
+    if (files.length === 0 || !activity) return toast.error("Falta archivo o actividad");
     setLoading(true);
-    const loadingToast = toast.loading(`Subiendo ${files.length} archivos...`);
+    const loadingToast = toast.loading(`Subiendo ${files.length}...`);
     try {
       const now = new Date();
       const [year, month, day] = customDate.split('-').map(Number);
@@ -281,15 +281,12 @@ export function CaptureForm() {
             try { fileToUpload = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }); } 
             catch (error) { console.error(error); }
           }
-          
           const docData = {
                activityName: activity, comment: comment, studentIds: selectedStudents, date: finalDate, teacherId: auth.currentUser.uid,
                grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
                section: filters.section === 'Todos' ? 'Varios' : filters.section,
-               tags: tags,
-               performance: performance // Guardamos la nota
+               tags: tags, performance: performance
           };
-
           if (!navigator.onLine) {
              await saveOffline(fileToUpload, docData); 
           } else {
@@ -300,22 +297,11 @@ export function CaptureForm() {
           }
       }
       toast.success("¡Guardado!", { id: loadingToast });
-      
-      // --- LÓGICA MODO RÁFAGA ---
-      if (keepData) {
-          // Si mantiene datos, solo borramos archivos y alumnos (porque son de otro grupo)
-          // Pero mantenemos Actividad, Tags, Comentarios y Performance
-          setFiles([]); 
-          setSelectedStudents([]);
-      } else {
-          // Limpieza total
-          setActivity(''); setComment(''); setPerformance(''); setFiles([]); setSelectedStudents([]); setTags([]);
-      }
-
+      if (keepData) { setFiles([]); setSelectedStudents([]); } 
+      else { setActivity(''); setComment(''); setPerformance(''); setFiles([]); setSelectedStudents([]); setTags([]); }
     } catch (error) { toast.error("Error: " + error.message, { id: loadingToast }); } finally { setLoading(false); }
   };
 
-  // Colores Semáforo
   const getPerfColor = (p) => {
       if (p === 'logrado') return { bg: '#ecfdf5', border: '#10b981', color: '#047857' };
       if (p === 'proceso') return { bg: '#fffbeb', border: '#f59e0b', color: '#b45309' };
@@ -326,10 +312,8 @@ export function CaptureForm() {
   return (
     <div style={{ paddingBottom:'20px' }}>
       
-      {/* CÁMARA OVERLAY (Idéntica a la anterior, omito detalles para ahorrar espacio visual aquí si ya la tienes bien) */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
-            {/* ... INTERFAZ CÁMARA (Usa la misma lógica de antes) ... */}
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(0,0,0,0.3)', position:'absolute', top:0, left:0, right:0, zIndex:10}}>
                 <div style={{display:'flex', gap:'20px'}}>
                     <button onClick={toggleFacingMode} style={{background:'none', border:'none', color:'white'}}><RefreshCw size={24}/></button>
@@ -372,11 +356,9 @@ export function CaptureForm() {
 
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             
-            {/* --- ZONA ACTIVIDAD INTELIGENTE --- */}
+            {/* ACTIVIDAD */}
             <div style={{position:'relative'}}>
                 <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
-                
-                {/* Chips Recientes */}
                 {recentActivities.length > 0 && (
                     <div style={{display:'flex', gap:'8px', overflowX:'auto', paddingBottom:'8px', marginBottom:'5px'}}>
                         <div style={{display:'flex', alignItems:'center', gap:'4px', color:'#666', fontSize:'10px', whiteSpace:'nowrap'}}><Clock size={10}/> Recientes:</div>
@@ -387,26 +369,16 @@ export function CaptureForm() {
                         ))}
                     </div>
                 )}
-
                 <input 
-                    type="text" 
-                    value={activity} 
-                    onChange={handleActivityChange} 
-                    placeholder="Ej: Baloncesto, Voleibol..." 
+                    type="text" value={activity} onChange={handleActivityChange} placeholder="Ej: Baloncesto, Voleibol..." 
                     style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} 
-                    onBlur={() => setTimeout(() => setSuggestions([]), 200)} // Delay para permitir clic
+                    onBlur={() => setTimeout(() => setSuggestions([]), 200)}
                 />
-                
-                {/* AUTOCOMPLETADO FLOTANTE */}
                 {suggestions.length > 0 && (
                     <ul style={{position:'absolute', top:'100%', left:0, right:0, background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
-                        {suggestions.map((sug, i) => (
-                            <li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>
-                        ))}
+                        {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
                     </ul>
                 )}
-                
-                {/* Tags */}
                 <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'8px'}}>
                     {AVAILABLE_TAGS.map(tag => (
                         <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
@@ -416,11 +388,10 @@ export function CaptureForm() {
                 </div>
             </div>
 
-            {/* INPUTS OCULTOS */}
             <input type="file" accept="video/*" capture="environment" ref={nativeVideoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
             <input type="file" accept="image/*" capture="environment" ref={nativePhotoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
 
-            {/* BOTONES DE ENTRADA (4 BOTONES) */}
+            {/* BOTONES ENTRADA */}
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px'}}>
                 <button type="button" onClick={startCamera} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Camera size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Web</div></button>
                 <button type="button" onClick={openNativePhoto} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><ImageIcon size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Foto</div></button>
@@ -428,7 +399,7 @@ export function CaptureForm() {
                 <label style={{border:'1px solid #ddd', background:'white', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><FolderPlus size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Galería</div><input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} /></label>
             </div>
 
-            {/* PREVIEWS */}
+            {/* PREVIEW */}
             {files.length > 0 && (
                 <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
                     {files.map((f, i) => (
@@ -442,16 +413,16 @@ export function CaptureForm() {
 
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
 
-            {/* SECCIÓN ALUMNOS */}
+            {/* ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option value="Todos">Todos los Niveles</option><option>Primaria</option><option>Secundaria</option></select>
-                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option value="Todos">Todas las Tandas</option><option>Matutina</option><option>Vespertina</option></select>
-                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option value="Todos">Todos los Grados</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option value="Todos">Todas las Secciones</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
+                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option value="Todos">Todos Niveles</option><option>Primaria</option><option>Secundaria</option></select>
+                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option value="Todos">Todas Tandas</option><option>Matutina</option><option>Vespertina</option></select>
+                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option value="Todos">Todos Grados</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
+                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option value="Todos">Todas Sec.</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
               </div>
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
                   <div style={{position:'relative', flex:1}}>
@@ -477,21 +448,19 @@ export function CaptureForm() {
               </div>
             </div>
 
-            {/* ZONA EVALUACIÓN Y GUARDADO */}
+            {/* EVALUACIÓN */}
             <div style={{background:'#f9fafb', padding:'15px', borderRadius:'12px', border:'1px solid #e5e7eb'}}>
-                <label style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'8px', display:'block'}}>EVALUACIÓN RÁPIDA (OPCIONAL)</label>
+                <label style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'8px', display:'block'}}>EVALUACIÓN (OPCIONAL)</label>
                 <div style={{display:'flex', gap:'10px', marginBottom:'15px'}}>
                     <button type="button" onClick={()=>setPerformance('logrado')} style={{...perfBtnStyle, ...(performance==='logrado'?activePerf.logrado:{})}}><Smile/> Logrado</button>
                     <button type="button" onClick={()=>setPerformance('proceso')} style={{...perfBtnStyle, ...(performance==='proceso'?activePerf.proceso:{})}}><Meh/> Proceso</button>
                     <button type="button" onClick={()=>setPerformance('apoyo')} style={{...perfBtnStyle, ...(performance==='apoyo'?activePerf.apoyo:{})}}><Frown/> Apoyo</button>
                 </div>
-
+                
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
-                    <div style={{fontSize:'12px', color:'#666'}}>
-                        Guardando <strong>{files.length} archivos</strong> para <strong>{selectedStudents.length} alumnos</strong>
-                    </div>
+                    <div style={{fontSize:'12px', color:'#666'}}>Guardando <strong>{files.length} archivos</strong> para <strong>{selectedStudents.length} alumnos</strong></div>
                     <button type="button" onClick={()=>setKeepData(!keepData)} style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', border:'none', background:'transparent', color: keepData ? '#2563eb' : '#666', cursor:'pointer'}}>
-                        {keepData ? <Lock size={14}/> : <Unlock size={14}/>} {keepData ? 'Mantener Datos' : 'Limpiar al guardar'}
+                        {keepData ? <Lock size={14}/> : <Unlock size={14}/>} {keepData ? 'Mantener Datos' : 'Limpiar'}
                     </button>
                 </div>
 
@@ -499,7 +468,6 @@ export function CaptureForm() {
                   {loading ? 'Guardando...' : `💾 Guardar Evidencia`}
                 </button>
             </div>
-
           </form>
       </div>
 
