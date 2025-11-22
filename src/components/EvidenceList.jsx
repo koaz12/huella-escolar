@@ -1,3 +1,4 @@
+// src/components/EvidenceList.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
 import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore';
@@ -12,8 +13,14 @@ import { Skeleton } from './Skeleton';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
+// 1. IMPORTAR EL HOOK
+import { useStudents } from '../hooks/useStudents';
+
 export function EvidenceList({ initialStudentId }) {
-  // --- ESTADOS ---
+  // --- 2. USAR EL HOOK (Datos centralizados) ---
+  const { students } = useStudents();
+
+  // --- ESTADOS DE DATOS ---
   const [evidences, setEvidences] = useState([]);
   const [studentsMap, setStudentsMap] = useState({});
   const [studentsList, setStudentsList] = useState([]); 
@@ -21,7 +28,7 @@ export function EvidenceList({ initialStudentId }) {
 
   // Filtros
   const [filterActivity, setFilterActivity] = useState(null);
-  const [filterStudent, setFilterStudent] = useState(initialStudentId || ''); // Inicializado con el prop
+  const [filterStudent, setFilterStudent] = useState(initialStudentId || ''); 
   const [filterPerformance, setFilterPerformance] = useState('Todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(false);
@@ -33,7 +40,25 @@ export function EvidenceList({ initialStudentId }) {
   const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
   const [modalFilters, setModalFilters] = useState({ grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos' });
 
-  // --- CARGA ---
+  // --- 3. EFECTO PARA PROCESAR ALUMNOS (Cuando el hook los cargue) ---
+  useEffect(() => {
+      if (students.length > 0) {
+           const map = {};
+           const list = [];
+           students.forEach(d => {
+               map[d.id] = d.name; 
+               list.push({ 
+                   id: d.id, name: d.name,
+                   grade: d.grade || '', section: d.section || '',
+                   level: d.level || '', shift: d.shift || ''
+               });
+           });
+           setStudentsMap(map);
+           setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
+      }
+  }, [students]); // Se ejecuta solo cuando 'students' cambia
+
+  // --- CARGA DE EVIDENCIAS (Esta se queda aquí porque es específica de este componente) ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -48,24 +73,7 @@ export function EvidenceList({ initialStudentId }) {
           setEvidences(docs);
           setLoading(false);
         });
-
-        const qStu = query(collection(db, "students"), where("teacherId", "==", user.uid));
-        const unsubStu = onSnapshot(qStu, (qs) => {
-           const map = {};
-           const list = [];
-           qs.forEach(d => {
-               const data = d.data();
-               map[d.id] = data.name; 
-               list.push({ 
-                   id: d.id, name: data.name,
-                   grade: data.grade || '', section: data.section || '',
-                   level: data.level || '', shift: data.shift || ''
-               });
-           });
-           setStudentsMap(map);
-           setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
-        });
-        return () => { unsubEv(); unsubStu(); };
+        return () => unsubEv();
       }
     });
     return () => unsubscribeAuth();

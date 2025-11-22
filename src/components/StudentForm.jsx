@@ -1,9 +1,10 @@
+// src/components/StudentForm.jsx
 import { useState, useEffect } from 'react';
 import { db, storage, auth } from '../firebase';
 import { 
   collection, addDoc, updateDoc, deleteDoc, doc, 
-  query, onSnapshot, where, getDocs, writeBatch 
-} from 'firebase/firestore';
+  writeBatch, getDocs, query, where 
+} from 'firebase/firestore'; // Quitamos onSnapshot y query de aquí porque los usa el hook
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
@@ -12,17 +13,23 @@ import {
   Save, Search, Filter, Calendar, User, Folder 
 } from 'lucide-react';
 
+// 1. IMPORTAMOS EL HOOK
+import { useStudents } from '../hooks/useStudents';
+
 export function StudentForm({ onNavigate }) {
-  // --- ESTADOS ---
+  // --- 2. USAMOS EL HOOK (Adiós a 30 líneas de código repetido) ---
+  // Renombramos 'students' a 'myStudents' para no romper tu lógica existente
+  const { students: myStudents, loading: loadingStudents } = useStudents();
+
+  // --- ESTADOS LOCALES ---
   const [formData, setFormData] = useState({ 
     name: '', studentId: '', level: 'Primaria', shift: 'Matutina', 
     grade: '4to', section: 'A', listNumber: '', birthDate: '' 
   });
   
   const [photoFile, setPhotoFile] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // Loading para guardar
   const [editingId, setEditingId] = useState(null);
-  const [myStudents, setMyStudents] = useState([]);
   
   // Filtros de VISTA
   const [viewFilters, setViewFilters] = useState({
@@ -38,32 +45,12 @@ export function StudentForm({ onNavigate }) {
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // --- 1. CARGA DE DATOS ---
-  useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        const q = query(collection(db, "students"), where("teacherId", "==", user.uid));
-        const unsubscribeSnapshot = onSnapshot(q, (qs) => {
-          const arr = [];
-          qs.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-          arr.sort((a, b) => {
-            if (a.grade !== b.grade) return a.grade.localeCompare(b.grade);
-            if (a.section !== b.section) return a.section.localeCompare(b.section);
-            return (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0);
-          });
-          setMyStudents(arr);
-        });
-        return () => unsubscribeSnapshot();
-      } else {
-        setMyStudents([]);
-      }
-    });
-    return () => unsubscribeAuth();
-  }, []);
+  // (EL USEEFFECT GIGANTE DE CARGA QUE HABÍA AQUÍ, YA NO EXISTE) 😎
 
-  // --- 2. AUTOCOMPLETADO # LISTA ---
+  // --- AUTOCOMPLETADO # LISTA ---
   useEffect(() => {
       if (editingId) return;
+      // Usamos myStudents que ahora viene del Hook
       const existing = myStudents.filter(s => s.grade === formData.grade && s.section === formData.section);
       if (existing.length > 0) {
           const maxNum = Math.max(...existing.map(s => Number(s.listNumber) || 0));
@@ -295,7 +282,6 @@ export function StudentForm({ onNavigate }) {
                      </div>
                   </div>
                   <div style={{display: 'flex', gap: '5px'}}>
-                     {/* BOTÓN PORTAFOLIO QUE NAVEGA */}
                      <button onClick={() => onNavigate && onNavigate('gallery', s.id)} style={{background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius:'6px', padding:'6px', cursor: 'pointer'}} title="Ver Portafolio"><Folder size={16} color="#2563eb"/></button>
                      <button onClick={() => handleEdit(s)} style={{background: '#fffbeb', border: '1px solid #fde68a', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Edit2 size={16} color="#d97706"/></button>
                      <button onClick={() => handleDelete(s.id)} style={{background: '#fef2f2', border: '1px solid #fecaca', borderRadius:'6px', padding:'6px', cursor: 'pointer'}}><Trash2 size={16} color="#dc2626"/></button>
