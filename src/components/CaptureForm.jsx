@@ -76,6 +76,14 @@ export function CaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
+  // --- 2. EFECTO CORRECTIVO PARA LA CÁMARA (EL FIX) ---
+  // Esto asegura que el video se conecte APENAS el elemento <video> exista en pantalla
+  useEffect(() => {
+    if (isCameraOpen && videoRef.current && cameraStream) {
+        videoRef.current.srcObject = cameraStream;
+    }
+  }, [isCameraOpen, cameraStream]);
+
   // --- LÓGICA FILTRADO ---
   const visibleStudents = students.filter(student => {
     if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -101,19 +109,34 @@ export function CaptureForm() {
   // --- LÓGICA CÁMARA PRO ---
   const startCamera = async () => {
     try {
-      if (cameraStream) stopCamera();
+      // Detenemos stream anterior si existe para evitar conflictos
+      if (cameraStream) {
+          cameraStream.getTracks().forEach(track => track.stop());
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+          video: { 
+              facingMode: facingMode, 
+              // Quitamos constraints estrictos para mayor compatibilidad
+              width: { ideal: 1920 }, 
+              height: { ideal: 1080 } 
+          }, 
           audio: cameraMode === 'video' 
       });
+      
       setCameraStream(stream);
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      // NO asignamos videoRef aquí, lo hace el useEffect de arriba
       setIsCameraOpen(true);
+
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
       if (capabilities.zoom) setZoomCap(capabilities.zoom);
       else setZoomCap(null);
-    } catch (err) { toast.error("Error cámara: " + err.message); }
+
+    } catch (err) { 
+        console.error(err);
+        toast.error("Error al acceder a la cámara. Verifica los permisos."); 
+    }
   };
 
   const stopCamera = () => {
@@ -124,8 +147,16 @@ export function CaptureForm() {
     clearInterval(timerRef.current);
   };
 
-  const toggleFacingMode = () => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
-  useEffect(() => { if(isCameraOpen) startCamera(); }, [facingMode]);
+  const toggleFacingMode = () => {
+      setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+      // Al cambiar modo, cerramos momentáneamente para reiniciar en el useEffect
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+  };
+  
+  // Reiniciar cámara si cambia el facingMode y estaba abierta
+  useEffect(() => { 
+      if(isCameraOpen && !cameraStream) startCamera(); 
+  }, [facingMode, isCameraOpen]); // Dependencia corregida
 
   const handleZoom = (e) => {
       const value = Number(e.target.value);
@@ -151,7 +182,13 @@ export function CaptureForm() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
-    if (facingMode === 'user') { context.translate(canvas.width, 0); context.scale(-1, 1); }
+    
+    // Efecto espejo si es selfie
+    if (facingMode === 'user') { 
+        context.translate(canvas.width, 0); 
+        context.scale(-1, 1); 
+    }
+    
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob((blob) => {
         if (!blob) return;
@@ -233,20 +270,14 @@ export function CaptureForm() {
             catch (error) { console.error(error); }
           }
           
-          // DATOS COMPLETOS PARA GUARDAR
           const docData = {
-               activityName: activity, 
-               comment: comment, 
-               studentIds: selectedStudents, 
-               date: finalDate, 
-               teacherId: auth.currentUser.uid,
+               activityName: activity, comment: comment, studentIds: selectedStudents, date: finalDate, teacherId: auth.currentUser.uid,
                grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
                section: filters.section === 'Todos' ? 'Varios' : filters.section,
                tags: tags 
           };
 
           if (!navigator.onLine) {
-             // AQUÍ ESTÁ LA MAGIA: Guardamos todo el objeto offline
              await saveOffline(fileToUpload, docData); 
           } else {
              const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${count}_${fileToUpload.name}`);
@@ -273,8 +304,11 @@ export function CaptureForm() {
                 </div>
                 {isRecording && <div style={{color:'#ef4444', fontWeight:'bold', fontSize:'18px', display:'flex', alignItems:'center', gap:'5px'}}><div style={{width:10, height:10, background:'red', borderRadius:'50%'}}></div> {formatTime(recordingTime)}</div>}
             </div>
+            
+            {/* VIDEO ELEMENT: Aquí aplicamos la referencia y el efecto se encarga de conectarlo */}
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
+            
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
                 {zoomCap && (
                     <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}>
