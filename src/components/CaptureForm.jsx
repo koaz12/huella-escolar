@@ -9,18 +9,18 @@ import imageCompression from 'browser-image-compression';
 import { 
   FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
   User, Filter, Search, Calendar, CheckSquare, Square,
-  RefreshCw, Zap, ZoomIn, Tag, Eye, Video, StopCircle
+  RefreshCw, Zap, ZoomIn, Video
 } from 'lucide-react';
 
 export function CaptureForm() {
   // --- ESTADOS DE DATOS ---
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
-  const [tags, setTags] = useState([]); // NUEVO: Etiquetas de contexto
+  const [tags, setTags] = useState([]); 
   const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]); 
   const [files, setFiles] = useState([]); 
   const [loading, setLoading] = useState(false);
-  const [previewFile, setPreviewFile] = useState(null); // NUEVO: Para ver foto en grande
+  const [previewFile, setPreviewFile] = useState(null);
   
   // --- ESTADOS DE ALUMNOS Y FILTROS ---
   const [students, setStudents] = useState([]); 
@@ -34,14 +34,14 @@ export function CaptureForm() {
 
   // --- ESTADOS CÁMARA AVANZADA ---
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [cameraMode, setCameraMode] = useState('photo'); // 'photo' | 'video'
+  const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [cameraStream, setCameraStream] = useState(null);
-  const [facingMode, setFacingMode] = useState('environment'); // 'environment' (trasera) | 'user' (frontal)
+  const [facingMode, setFacingMode] = useState('environment');
   const [flashOn, setFlashOn] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [zoomCap, setZoomCap] = useState(null); // Capacidades de zoom del dispositivo
+  const [zoomCap, setZoomCap] = useState(null);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -49,7 +49,6 @@ export function CaptureForm() {
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  // Opciones de Tags
   const AVAILABLE_TAGS = ['Evaluación', 'Práctica', 'Torneo', 'Conducta', 'Juego Libre'];
 
   // --- 1. CARGA INICIAL ---
@@ -100,32 +99,20 @@ export function CaptureForm() {
   };
 
   // --- LÓGICA CÁMARA PRO ---
-  
-  // Iniciar Stream con configuraciones
   const startCamera = async () => {
     try {
-      if (cameraStream) stopCamera(); // Detener anterior si existe
-      
+      if (cameraStream) stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-              facingMode: facingMode,
-              width: { ideal: 1920 },
-              height: { ideal: 1080 }
-          }, 
-          audio: cameraMode === 'video' // Solo pedir audio si es modo video
+          video: { facingMode: facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+          audio: cameraMode === 'video' 
       });
-      
       setCameraStream(stream);
       if (videoRef.current) videoRef.current.srcObject = stream;
       setIsCameraOpen(true);
-
-      // Detectar capacidades de hardware (Zoom/Flash)
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-      
       if (capabilities.zoom) setZoomCap(capabilities.zoom);
       else setZoomCap(null);
-
     } catch (err) { toast.error("Error cámara: " + err.message); }
   };
 
@@ -137,37 +124,26 @@ export function CaptureForm() {
     clearInterval(timerRef.current);
   };
 
-  // Cambiar cámara (Frontal/Trasera)
-  const toggleFacingMode = () => {
-      setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
-      // El useEffect reiniciará la cámara al cambiar facingMode
-  };
+  const toggleFacingMode = () => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
   useEffect(() => { if(isCameraOpen) startCamera(); }, [facingMode]);
 
-  // Controlar Zoom
   const handleZoom = (e) => {
       const value = Number(e.target.value);
       setZoom(value);
       if (cameraStream) {
           const track = cameraStream.getVideoTracks()[0];
-          if (track.applyConstraints) {
-              track.applyConstraints({ advanced: [{ zoom: value }] }).catch(e => console.log(e));
-          }
+          if (track.applyConstraints) track.applyConstraints({ advanced: [{ zoom: value }] }).catch(e => console.log(e));
       }
   };
 
-  // Controlar Flash (Antorcha)
   const toggleFlash = () => {
       if (!cameraStream) return;
       const track = cameraStream.getVideoTracks()[0];
       const newStatus = !flashOn;
       setFlashOn(newStatus);
-      if (track.applyConstraints) {
-          track.applyConstraints({ advanced: [{ torch: newStatus }] }).catch(() => toast("Flash no soportado en este dispositivo"));
-      }
+      if (track.applyConstraints) track.applyConstraints({ advanced: [{ torch: newStatus }] }).catch(() => toast("Flash no soportado"));
   };
 
-  // --- CAPTURA FOTO ---
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -175,13 +151,7 @@ export function CaptureForm() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
-    
-    // Espejo si es frontal
-    if (facingMode === 'user') {
-        context.translate(canvas.width, 0);
-        context.scale(-1, 1);
-    }
-    
+    if (facingMode === 'user') { context.translate(canvas.width, 0); context.scale(-1, 1); }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob((blob) => {
         if (!blob) return;
@@ -192,44 +162,25 @@ export function CaptureForm() {
     }, 'image/jpeg', 0.9);
   };
 
-  // --- CAPTURA VIDEO ---
   const startRecording = () => {
       if (!cameraStream) return;
       chunksRef.current = [];
       try {
-          const mediaRecorder = new MediaRecorder(cameraStream); // Codec automático
+          const mediaRecorder = new MediaRecorder(cameraStream);
           mediaRecorderRef.current = mediaRecorder;
-          
-          mediaRecorder.ondataavailable = (e) => {
-              if (e.data.size > 0) chunksRef.current.push(e.data);
-          };
-
+          mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
           mediaRecorder.onstop = () => {
               const blob = new Blob(chunksRef.current, { type: 'video/mp4' });
               const fileName = `video_${Date.now()}.mp4`;
               const file = new File([blob], fileName, { type: 'video/mp4' });
-              
-              // Validar tamaño (50MB)
-              if (file.size > 50 * 1024 * 1024) {
-                  toast.error("Video muy pesado (>50MB). Descartado.");
-              } else {
-                  setFiles(prev => [...prev, file]);
-                  toast.success("¡Video guardado!", {icon: '🎥'});
-              }
+              if (file.size > 50 * 1024 * 1024) toast.error("Video muy pesado (>50MB). Descartado.");
+              else { setFiles(prev => [...prev, file]); toast.success("¡Video guardado!", {icon: '🎥'}); }
               setRecordingTime(0);
           };
-
           mediaRecorder.start();
           setIsRecording(true);
-          
-          // Timer
-          timerRef.current = setInterval(() => {
-              setRecordingTime(prev => prev + 1);
-          }, 1000);
-
-      } catch (e) {
-          toast.error("Error al grabar: " + e.message);
-      }
+          timerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+      } catch (e) { toast.error("Error al grabar: " + e.message); }
   };
 
   const stopRecording = () => {
@@ -246,7 +197,6 @@ export function CaptureForm() {
       return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // --- MANEJO ARCHIVOS ---
   const handleFilesChange = (e) => { 
     const selectedFiles = Array.from(e.target.files); 
     if (selectedFiles.length === 0) return;
@@ -260,14 +210,10 @@ export function CaptureForm() {
   };
   
   const removeFile = (index) => setFiles(prev => prev.filter((_, i) => i !== index));
+  const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
+  const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
-  // --- TAGS ---
-  const toggleTag = (tag) => {
-      if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag));
-      else setTags(prev => [...prev, tag]);
-  };
-
-  // --- GUARDADO ---
+  // --- GUARDADO FINAL ---
   const handleSave = async (e) => {
     e.preventDefault();
     if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
@@ -287,17 +233,21 @@ export function CaptureForm() {
             catch (error) { console.error(error); }
           }
           
+          // DATOS COMPLETOS PARA GUARDAR
           const docData = {
-               activityName: activity, comment: comment, studentIds: selectedStudents, date: finalDate, teacherId: auth.currentUser.uid,
+               activityName: activity, 
+               comment: comment, 
+               studentIds: selectedStudents, 
+               date: finalDate, 
+               teacherId: auth.currentUser.uid,
                grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
                section: filters.section === 'Todos' ? 'Varios' : filters.section,
-               tags: tags // GUARDAMOS LOS TAGS
+               tags: tags 
           };
 
           if (!navigator.onLine) {
-             // 2. USAMOS LA NUEVA FUNCIÓN DE DB.JS
-             // Pasamos el archivo Y el objeto de datos completo
-             await saveOffline(fileToUpload, docData);
+             // AQUÍ ESTÁ LA MAGIA: Guardamos todo el objeto offline
+             await saveOffline(fileToUpload, docData); 
           } else {
              const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${count}_${fileToUpload.name}`);
              const snapshot = await uploadBytes(storageRef, fileToUpload);
@@ -310,16 +260,12 @@ export function CaptureForm() {
     } catch (error) { toast.error("Error: " + error.message, { id: loadingToast }); } finally { setLoading(false); }
   };
 
-  const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
-
   return (
     <div style={{ paddingBottom:'20px' }}>
       
-      {/* --- CÁMARA PRO OVERLAY --- */}
+      {/* CÁMARA OVERLAY */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
-            
-            {/* TOP BAR: Controles Extra */}
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(0,0,0,0.3)', position:'absolute', top:0, left:0, right:0, zIndex:10}}>
                 <div style={{display:'flex', gap:'20px'}}>
                     <button onClick={toggleFacingMode} style={{background:'none', border:'none', color:'white'}}><RefreshCw size={24}/></button>
@@ -327,14 +273,9 @@ export function CaptureForm() {
                 </div>
                 {isRecording && <div style={{color:'#ef4444', fontWeight:'bold', fontSize:'18px', display:'flex', alignItems:'center', gap:'5px'}}><div style={{width:10, height:10, background:'red', borderRadius:'50%'}}></div> {formatTime(recordingTime)}</div>}
             </div>
-
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
-            
-            {/* CONTROLES INFERIORES */}
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
-                
-                {/* SLIDER DE ZOOM (Solo si soporta) */}
                 {zoomCap && (
                     <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}>
                         <ZoomIn size={20} color="white"/>
@@ -342,45 +283,28 @@ export function CaptureForm() {
                         <span style={{color:'white', fontSize:'12px'}}>{zoom}x</span>
                     </div>
                 )}
-
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    {/* Cerrar */}
                     <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}>
                         <Check size={30} color="#10b981"/> <span style={{fontSize:'10px'}}>Listo ({files.length})</span>
                     </button>
-
-                    {/* OBTURADOR DINÁMICO */}
                     <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'10px'}}>
                         {cameraMode === 'photo' ? (
-                            <button onClick={capturePhoto} style={{ width:'70px', height:'70px', borderRadius:'50%', background:'white', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}>
-                                <div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid black'}}></div>
-                            </button>
+                            <button onClick={capturePhoto} style={{ width:'70px', height:'70px', borderRadius:'50%', background:'white', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}><div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid black'}}></div></button>
                         ) : (
-                            <button onClick={isRecording ? stopRecording : startRecording} style={{ width:'70px', height:'70px', borderRadius:'50%', background: isRecording ? 'white' : '#ef4444', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}>
-                                {isRecording ? <Square size={30} fill="red" color="red"/> : <div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid white'}}></div>}
-                            </button>
+                            <button onClick={isRecording ? stopRecording : startRecording} style={{ width:'70px', height:'70px', borderRadius:'50%', background: isRecording ? 'white' : '#ef4444', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}>{isRecording ? <Square size={30} fill="red" color="red"/> : <div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid white'}}></div>}</button>
                         )}
-                        
-                        {/* Selector Modo */}
                         <div style={{background:'rgba(255,255,255,0.2)', borderRadius:'20px', padding:'4px', display:'flex'}}>
                             <button onClick={()=>!isRecording && setCameraMode('photo')} style={{padding:'5px 12px', borderRadius:'16px', border:'none', background: cameraMode==='photo' ? 'white' : 'transparent', color: cameraMode==='photo' ? 'black' : 'white', fontSize:'12px', fontWeight:'bold'}}>Foto</button>
                             <button onClick={()=>!isRecording && setCameraMode('video')} style={{padding:'5px 12px', borderRadius:'16px', border:'none', background: cameraMode==='video' ? 'white' : 'transparent', color: cameraMode==='video' ? 'black' : 'white', fontSize:'12px', fontWeight:'bold'}}>Video</button>
                         </div>
                     </div>
-
-                    {/* Galería Mini */}
-                    {files.length > 0 ? (
-                        <div style={{width:'40px', height:'40px', borderRadius:'8px', overflow:'hidden', border:'2px solid white'}}>
-                             {files[files.length-1].type.startsWith('video/') ? <div style={{width:'100%', height:'100%', background:'#333', display:'grid', placeItems:'center'}}><Video size={20} color="white"/></div> : <img src={URL.createObjectURL(files[files.length-1])} style={{width:'100%', height:'100%', objectFit:'cover'}} />}
-                        </div>
-                    ) : <div style={{width:'40px'}}></div>}
+                    {files.length > 0 ? (<div style={{width:'40px', height:'40px', borderRadius:'8px', overflow:'hidden', border:'2px solid white'}}>{files[files.length-1].type.startsWith('video/') ? <div style={{width:'100%', height:'100%', background:'#333', display:'grid', placeItems:'center'}}><Video size={20} color="white"/></div> : <img src={URL.createObjectURL(files[files.length-1])} style={{width:'100%', height:'100%', objectFit:'cover'}} />}</div>) : <div style={{width:'40px'}}></div>}
                 </div>
             </div>
         </div>
       )}
 
       <div style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
-          
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
               <h3 style={{margin: 0, color: '#1f2937'}}>📸 Nueva Evidencia</h3>
               <div style={{position:'relative'}}>
@@ -390,14 +314,10 @@ export function CaptureForm() {
           </div>
 
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            
-            {/* ACTIVIDAD + TAGS */}
             <div>
                 <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
                 <input list="activities-list" type="text" value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Ej: Baloncesto, Voleibol..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} />
                 <datalist id="activities-list">{recentActivities.map((act, i) => <option key={i} value={act} />)}</datalist>
-                
-                {/* NUEVO: SELECCIÓN DE TAGS */}
                 <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'8px'}}>
                     {AVAILABLE_TAGS.map(tag => (
                         <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
@@ -407,20 +327,11 @@ export function CaptureForm() {
                 </div>
             </div>
 
-            {/* BOTONES DE ENTRADA */}
             <div style={{display:'flex', gap:'10px'}}>
-                <button type="button" onClick={startCamera} style={{flex: 1, border:'none', background:'#10b981', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'white', boxShadow:'0 4px 6px rgba(16, 185, 129, 0.2)', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <Camera size={28}/>
-                    <div style={{fontWeight:'bold', fontSize:'14px'}}>Cámara Pro</div>
-                </button>
-                <label style={{flex: 1, border:'2px solid #3b82f6', background:'white', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#3b82f6', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <FolderPlus size={28}/>
-                    <div style={{fontWeight:'bold', fontSize:'14px'}}>Galería</div>
-                    <input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} />
-                </label>
+                <button type="button" onClick={startCamera} style={{flex: 1, border:'none', background:'#10b981', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'white', boxShadow:'0 4px 6px rgba(16, 185, 129, 0.2)', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}><Camera size={28}/><div style={{fontWeight:'bold', fontSize:'14px'}}>Cámara Pro</div></button>
+                <label style={{flex: 1, border:'2px solid #3b82f6', background:'white', padding:'15px', borderRadius:'10px', textAlign:'center', cursor:'pointer', color:'#3b82f6', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}><FolderPlus size={28}/><div style={{fontWeight:'bold', fontSize:'14px'}}>Galería</div><input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} style={{display:'none'}} /></label>
             </div>
 
-            {/* PREVIEW DE ARCHIVOS */}
             {files.length > 0 && (
                 <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
                     {files.map((f, i) => (
@@ -434,19 +345,16 @@ export function CaptureForm() {
 
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios sobre la clase..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
 
-            {/* SECCIÓN ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
               </div>
-              
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
                  <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
                  <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
                  <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
                  <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
               </div>
-              
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
                   <div style={{position:'relative', flex:1}}>
                       <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
@@ -456,7 +364,6 @@ export function CaptureForm() {
                       {visibleStudents.length>0 && visibleStudents.every(s=>selectedStudents.includes(s.id)) ? <><Square size={14}/> Ninguno</> : <><CheckSquare size={14}/> Todos</>}
                   </button>
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
                 {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
                 {visibleStudents.map(student => {
@@ -478,15 +385,10 @@ export function CaptureForm() {
           </form>
       </div>
 
-      {/* VISOR PREVIEW (MODAL) */}
       {previewFile && (
           <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:10000, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}}>
               <button onClick={()=>setPreviewFile(null)} style={{position:'absolute', top:'20px', right:'20px', background:'rgba(255,255,255,0.2)', color:'white', border:'none', padding:'10px', borderRadius:'50%'}}><X/></button>
-              {previewFile.type.startsWith('video/') ? (
-                  <video src={URL.createObjectURL(previewFile)} controls style={{maxWidth:'100%', maxHeight:'80vh'}}/>
-              ) : (
-                  <img src={URL.createObjectURL(previewFile)} style={{maxWidth:'100%', maxHeight:'80vh', objectFit:'contain'}}/>
-              )}
+              {previewFile.type.startsWith('video/') ? <video src={URL.createObjectURL(previewFile)} controls style={{maxWidth:'100%', maxHeight:'80vh'}}/> : <img src={URL.createObjectURL(previewFile)} style={{maxWidth:'100%', maxHeight:'80vh', objectFit:'contain'}}/>}
           </div>
       )}
     </div>
