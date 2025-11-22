@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Huella Escolar',
         short_name: 'Huella',
         description: 'Gestión de Educación Física',
-        theme_color: '#2563eb',
-        background_color: '#ffffff',
+        theme_color: '#f4f6f8', 
+        background_color: '#f4f6f8',
         display: 'standalone', // Esto quita la barra de URL del navegador
         orientation: 'portrait', // Bloquea la rotación vertical
         start_url: '/',
