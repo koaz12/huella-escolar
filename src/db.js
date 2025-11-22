@@ -1,33 +1,40 @@
 // src/db.js
 import Dexie from 'dexie';
 
-// Creamos la base de datos local llamada 'HuellaEscolarDB'
+// 1. Definir la base de datos local
 export const dbLocal = new Dexie('HuellaEscolarDB');
 
 // Definimos las tablas (stores)
 dbLocal.version(1).stores({
-  // Tabla para evidencias pendientes de subir
-  // ++id = ID automático
-  // fileBlob = El video/foto en sí
-  // synced = Si ya se subió o no (0 = No, 1 = Si)
-  offlineEvidence: '++id, activityName, studentIds, timestamp, synced' 
+  pendingUploads: '++id, timestamp' // id autoincremental
 });
 
-// Función auxiliar para guardar una evidencia offline
-export const saveOffline = async (file, activityName, studentIds, comment = '') => {
+/**
+ * Guarda una evidencia en la cola local para subirla luego.
+ * @param {File} file - El archivo de imagen o video.
+ * @param {Object} docData - Todos los datos (actividad, alumnos, tags, fecha, etc).
+ */
+export async function saveOffline(file, docData) {
   try {
-    await dbLocal.offlineEvidence.add({
-      fileBlob: file,
-      activityName,
-      studentIds,
-      comment, // <--- Nuevo campo
-      timestamp: new Date().toISOString(),
-      synced: 0
+    // Convertir el File a Blob para guardarlo en Dexie
+    // Dexie maneja Blobs nativamente, pero nos aseguramos.
+    await dbLocal.pendingUploads.add({
+      file: file, 
+      metadata: docData, // Guardamos el objeto completo con tags, performance, etc.
+      timestamp: Date.now()
     });
-    console.log("Evidencia guardada localmente");
-    return true;
+    console.log("Guardado offline en Dexie 📥");
   } catch (error) {
-    console.error("Error guardando offline:", error);
-    return false;
+    console.error("Error guardando en Dexie:", error);
+    throw new Error("No se pudo guardar localmente.");
   }
-};
+}
+
+// Funciones auxiliares para el Sincronizador
+export async function getPendingUploads() {
+  return await dbLocal.pendingUploads.toArray();
+}
+
+export async function deletePendingUpload(id) {
+  return await dbLocal.pendingUploads.delete(id);
+}

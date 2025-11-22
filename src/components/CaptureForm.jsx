@@ -295,7 +295,9 @@ export function CaptureForm() {
           };
 
           if (!navigator.onLine) {
-             await saveOffline(fileToUpload, activity, selectedStudents, comment); 
+             // 2. USAMOS LA NUEVA FUNCIÓN DE DB.JS
+             // Pasamos el archivo Y el objeto de datos completo
+             await saveOffline(fileToUpload, docData);
           } else {
              const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${count}_${fileToUpload.name}`);
              const snapshot = await uploadBytes(storageRef, fileToUpload);

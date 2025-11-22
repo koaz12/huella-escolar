@@ -1,87 +1,128 @@
 // src/components/SyncStatus.jsx
 import { useState, useEffect } from 'react';
-import { dbLocal } from '../db'; // Tu BD Offline
-import { db, storage } from '../firebase'; // Tu Nube
+import { dbLocal, getPendingUploads, deletePendingUpload } from '../db';
+import { db, storage, auth } from '../firebase'; // Asegúrate de que la ruta sea correcta
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc } from 'firebase/firestore';
-import { useLiveQuery } from 'dexie-react-hooks'; // Para que el contador se actualice solo
+import { RefreshCw, CloudOff, CheckCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export function SyncStatus() {
+  const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
-  
-  // Cuenta cuántas evidencias hay guardadas en el celular (pendientes)
-  const pendingItems = useLiveQuery(
-    () => dbLocal.offlineEvidence.toArray()
-  );
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  if (!pendingItems || pendingItems.length === 0) return null;
+  // 1. Monitorear Conexión y Cola
+  useEffect(() => {
+    const updateCount = async () => {
+        const count = await dbLocal.pendingUploads.count();
+        setPendingCount(count);
+    };
 
-  const handleSync = async () => {
-    if (!navigator.onLine) return alert("❌ Aún no tienes internet.");
+    // Chequear cada 5 segundos o cuando vuelva internet
+    const interval = setInterval(updateCount, 5000);
+    updateCount(); // Chequeo inicial
+
+    const handleOnline = () => { setIsOnline(true); syncNow(); };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 2. La Gran Función de Sincronización
+  const syncNow = async () => {
+    if (isSyncing || !navigator.onLine) return;
     
-    if (!confirm(`¿Subir ${pendingItems.length} evidencias a la nube ahora?`)) return;
+    const items = await getPendingUploads();
+    if (items.length === 0) return;
 
     setIsSyncing(true);
+    const toastId = toast.loading(`Sincronizando ${items.length} evidencias...`);
 
     try {
-      for (const item of pendingItems) {
-        // 1. Subir el archivo (video/foto) a Firebase Storage
-        const storageRef = ref(storage, `evidencias/OFFLINE_${Date.now()}_${item.activityName}`);
-        const snapshot = await uploadBytes(storageRef, item.fileBlob);
-        const downloadURL = await getDownloadURL(snapshot.ref);
+      let successCount = 0;
 
-        // 2. Guardar los datos en Firestore
-        await addDoc(collection(db, "evidence"), {
-          activityName: item.activityName,
-          fileUrl: downloadURL,
-          studentIds: item.studentIds,
-          date: new Date(item.timestamp),
-          teacherId: "profe_123",
-          uploadedFromOffline: true
-        });
+      for (const item of items) {
+        try {
+          // A. Subir Archivo a Storage
+          const storageRef = ref(storage, `evidencias/${auth.currentUser?.uid || 'anon'}/${item.timestamp}_${item.file.name}`);
+          const snapshot = await uploadBytes(storageRef, item.file);
+          const downloadURL = await getDownloadURL(snapshot.ref);
 
-        // 3. ¡Éxito! Borrar de la memoria del celular para liberar espacio
-        await dbLocal.offlineEvidence.delete(item.id);
+          // B. Guardar en Firestore (Recuperando TODOS los datos guardados)
+          // Nota: Convertimos fechas de string a Date si es necesario
+          const finalData = {
+              ...item.metadata,
+              fileUrl: downloadURL,
+              fileType: item.file.type.startsWith('video/') ? 'video' : 'image',
+              date: new Date(item.metadata.date || Date.now()), // Restaurar fecha real
+              createdAt: new Date() // Fecha de subida real
+          };
+
+          await addDoc(collection(db, "evidence"), finalData);
+
+          // C. Borrar de la cola local si tuvo éxito
+          await deletePendingUpload(item.id);
+          successCount++;
+
+        } catch (err) {
+          console.error("Error subiendo item:", err);
+          // No lo borramos para reintentar luego
+        }
       }
-      alert("✅ ¡Todo sincronizado correctamente!");
-      
+
+      if (successCount > 0) {
+          toast.success(`¡${successCount} evidencias subidas!`, { id: toastId });
+          setPendingCount(prev => prev - successCount);
+      } else {
+          toast.error("Error de sincronización", { id: toastId });
+      }
+
     } catch (error) {
-      console.error(error);
-      alert("Hubo un error al subir: " + error.message);
+      console.error("Error crítico sync:", error);
     } finally {
       setIsSyncing(false);
     }
   };
 
+  // 3. Renderizado Visual
+  if (pendingCount === 0) return null; // Si no hay nada pendiente, no se muestra
+
   return (
-    <div style={{ 
-      backgroundColor: '#fff3cd', 
-      color: '#856404', 
-      padding: '15px', 
-      marginBottom: '20px', 
-      borderRadius: '8px',
-      border: '1px solid #ffeeba',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center'
+    <div style={{
+        marginBottom: '15px', padding: '10px', borderRadius: '8px',
+        background: isOnline ? '#ecfdf5' : '#fff7ed',
+        border: `1px solid ${isOnline ? '#10b981' : '#f97316'}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        animation: 'fadeIn 0.5s'
     }}>
-      <span>⚠️ Tienes <strong>{pendingItems.length}</strong> evidencias pendientes.</span>
-      
-      <button 
-        onClick={handleSync}
-        disabled={isSyncing}
-        style={{
-          backgroundColor: '#28a745',
-          color: 'white',
-          border: 'none',
-          padding: '8px 15px',
-          borderRadius: '5px',
-          cursor: 'pointer',
-          fontWeight: 'bold'
-        }}
-      >
-        {isSyncing ? 'Subiendo...' : '☁️ Sincronizar Ahora'}
-      </button>
+        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+            {isSyncing ? <RefreshCw className="spin" size={20} color="#10b981"/> : <CloudOff size={20} color="#f97316"/>}
+            <div>
+                <div style={{fontWeight:'bold', fontSize:'13px', color:'#333'}}>
+                    {isSyncing ? 'Subiendo a la nube...' : 'Pendiente de subir'}
+                </div>
+                <div style={{fontSize:'11px', color:'#666'}}>
+                    {pendingCount} archivos guardados en celular
+                </div>
+            </div>
+        </div>
+        
+        {/* Botón manual si hay internet pero no ha empezado */}
+        {isOnline && !isSyncing && (
+            <button onClick={syncNow} style={{background:'#10b981', color:'white', border:'none', padding:'5px 12px', borderRadius:'20px', fontSize:'11px', fontWeight:'bold', cursor:'pointer'}}>
+                Subir
+            </button>
+        )}
+        
+        <style>{`.spin { animation: spin 1s linear infinite; } @keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
