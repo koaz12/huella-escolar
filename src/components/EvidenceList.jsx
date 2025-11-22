@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import { Skeleton } from './Skeleton';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { SchoolFilters } from './UI/SchoolFilters';
 
 // 1. IMPORTAR EL HOOK
 import { useStudents } from '../hooks/useStudents';
@@ -324,16 +325,16 @@ export function EvidenceList({ initialStudentId }) {
                             <button onClick={()=>setEditData({...editData, performance: 'apoyo'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='apoyo' ? '#ef4444' : '#e5e7eb'}`, background: editData.performance==='apoyo' ? '#fef2f2' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}><Frown color="#ef4444"/> <span style={{fontSize:'10px', color:'#ef4444'}}>Apoyo</span></button>
                         </div>
 
+                        {/* FILTROS DE ALUMNOS */}
                         <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
-                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista de Alumnos:</div>
-                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginBottom:'5px'}}>
-                                <select value={modalFilters.level} onChange={e=>setModalFilters({...modalFilters, level:e.target.value})} style={selectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
-                                <select value={modalFilters.shift} onChange={e=>setModalFilters({...modalFilters, shift:e.target.value})} style={selectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option><option>Extendida</option></select>
-                            </div>
-                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
-                                <select value={modalFilters.grade} onChange={e=>setModalFilters({...modalFilters, grade:e.target.value})} style={selectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                                <select value={modalFilters.section} onChange={e=>setModalFilters({...modalFilters, section:e.target.value})} style={selectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
-                            </div>
+                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista:</div>
+                            
+                            {/* USAMOS EL COMPONENTE NUEVO */}
+                            <SchoolFilters 
+                                filters={modalFilters} 
+                                onChange={setModalFilters} 
+                                layout="grid"
+                            />
                         </div>
 
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar ({getStudentsForEdit().length} visibles)</label>

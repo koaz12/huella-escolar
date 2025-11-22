@@ -4,7 +4,7 @@ import { db, storage, auth } from '../firebase';
 import { 
   collection, addDoc, updateDoc, deleteDoc, doc, 
   writeBatch, getDocs, query, where 
-} from 'firebase/firestore'; // Quitamos onSnapshot y query de aquí porque los usa el hook
+} from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
@@ -13,25 +13,24 @@ import {
   Save, Search, Filter, Calendar, User, Folder 
 } from 'lucide-react';
 
-// 1. IMPORTAMOS EL HOOK
+// 1. IMPORTAMOS LOS HOOKS Y COMPONENTES UI
 import { useStudents } from '../hooks/useStudents';
+import { SchoolFilters } from './UI/SchoolFilters'; // <--- NUEVO
 
 export function StudentForm({ onNavigate }) {
-  // --- 2. USAMOS EL HOOK (Adiós a 30 líneas de código repetido) ---
-  // Renombramos 'students' a 'myStudents' para no romper tu lógica existente
-  const { students: myStudents, loading: loadingStudents } = useStudents();
+  const { students: myStudents } = useStudents();
 
-  // --- ESTADOS LOCALES ---
+  // --- ESTADOS ---
   const [formData, setFormData] = useState({ 
     name: '', studentId: '', level: 'Primaria', shift: 'Matutina', 
     grade: '4to', section: 'A', listNumber: '', birthDate: '' 
   });
   
   const [photoFile, setPhotoFile] = useState(null);
-  const [loading, setLoading] = useState(false); // Loading para guardar
+  const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
   
-  // Filtros de VISTA
+  // Filtros de VISTA (Estos son los que controla el nuevo componente)
   const [viewFilters, setViewFilters] = useState({
       level: 'Todos', shift: 'Todos', grade: 'Todos', section: 'Todos'
   });
@@ -45,12 +44,9 @@ export function StudentForm({ onNavigate }) {
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // (EL USEEFFECT GIGANTE DE CARGA QUE HABÍA AQUÍ, YA NO EXISTE) 😎
-
-  // --- AUTOCOMPLETADO # LISTA ---
+  // --- AUTOCOMPLETADO ---
   useEffect(() => {
       if (editingId) return;
-      // Usamos myStudents que ahora viene del Hook
       const existing = myStudents.filter(s => s.grade === formData.grade && s.section === formData.section);
       if (existing.length > 0) {
           const maxNum = Math.max(...existing.map(s => Number(s.listNumber) || 0));
@@ -204,6 +200,7 @@ export function StudentForm({ onNavigate }) {
 
       {showExcel && (
         <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', border: '2px solid #10b981'}}>
+           {/* Aquí podríamos usar SchoolFilters también si adaptamos la lógica, pero por ahora lo dejamos simple */}
            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom: '15px'}}>
               <select value={bulkConfig.grade} onChange={(e)=>setBulkConfig({...bulkConfig, grade: e.target.value})} style={inputStyle}>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
               <select value={bulkConfig.section} onChange={(e)=>setBulkConfig({...bulkConfig, section: e.target.value})} style={inputStyle}>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
@@ -216,6 +213,7 @@ export function StudentForm({ onNavigate }) {
         </div>
       )}
 
+      {/* --- FORMULARIO DE REGISTRO (AQUÍ NO USAMOS SCHOOLFILTERS POR AHORA) --- */}
       {!showExcel && (
         <div style={{background:'white', padding:'15px', borderRadius:'12px', marginBottom:'20px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
            <h3 style={{marginTop:0, display:'flex', alignItems:'center', gap:'8px', fontSize:'16px'}}>
@@ -248,20 +246,27 @@ export function StudentForm({ onNavigate }) {
         </div>
       )}
 
+      {/* --- BARRA DE FILTROS DE VISTA (AQUÍ ES DONDE APLICAMOS LA REFACTORIZACIÓN) --- */}
       <div style={{background:'#f8fafc', padding:'10px', borderRadius:'8px', border:'1px solid #e2e8f0', marginBottom:'15px'}}>
           <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', marginBottom:'5px', display:'flex', alignItems:'center', gap:'5px'}}><Filter size={12}/> Filtrar Lista:</div>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'5px', marginBottom:'8px'}}>
-              <select value={viewFilters.level} onChange={e=>setViewFilters({...viewFilters, level:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Primaria</option><option>Secundaria</option></select>
-              <select value={viewFilters.shift} onChange={e=>setViewFilters({...viewFilters, shift:e.target.value})} style={filterSelectStyle}><option>Todos</option><option>Matutina</option><option>Vespertina</option></select>
-              <select value={viewFilters.grade} onChange={e=>setViewFilters({...viewFilters, grade:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-              <select value={viewFilters.section} onChange={e=>setViewFilters({...viewFilters, section:e.target.value})} style={filterSelectStyle}><option>Todos</option>{['A','B','C','D','E'].map(o=><option key={o}>{o}</option>)}</select>
+          
+          {/* USAMOS EL COMPONENTE REUTILIZABLE */}
+          <div style={{marginBottom:'8px'}}>
+              <SchoolFilters 
+                  filters={viewFilters} 
+                  onChange={setViewFilters} 
+                  showAllOption={true} 
+                  layout="grid"
+              />
           </div>
+          
           <div style={{position:'relative'}}>
               <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
               <input placeholder="Buscar por nombre o ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'6px 6px 6px 28px', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'13px', boxSizing:'border-box'}}/>
           </div>
       </div>
 
+      {/* LISTA DE ALUMNOS */}
       <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
          <div style={{fontSize:'12px', color:'#666', textAlign:'right'}}>{filteredStudents.length} alumnos encontrados</div>
          {filteredStudents.length === 0 ? <p style={{textAlign: 'center', color: '#999', padding:'20px'}}>No hay resultados.</p> : 
@@ -303,6 +308,5 @@ export function StudentForm({ onNavigate }) {
 }
 
 const inputStyle = { padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize:'13px' };
-const filterSelectStyle = { padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', width:'100%' };
 const labelStyle = { fontSize: '10px', fontWeight: 'bold', color: '#6b7280', position:'absolute', top:'-6px', left:'5px', background:'white', padding:'0 2px' };
 const btnSecondaryStyle = { padding: '8px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center', fontSize:'12px' };

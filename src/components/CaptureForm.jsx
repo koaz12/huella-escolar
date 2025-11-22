@@ -12,6 +12,7 @@ import {
   RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, 
   Smile, Meh, Frown, Lock, Unlock
 } from 'lucide-react';
+import { SchoolFilters } from './UI/SchoolFilters';
 
 // IMPORTAMOS NUESTROS NUEVOS HOOKS
 import { useStudents } from '../hooks/useStudents';
@@ -383,19 +384,13 @@ export function CaptureForm() {
               </div>
 
               {/* GRILLA ALUMNOS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
-                {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
-                {visibleStudents.map(student => {
-                   const isSelected = selectedStudents.includes(student.id);
-                   return (
-                      <div key={student.id} onClick={() => toggleStudent(student.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '8px', border: isSelected ? '1px solid #2563eb' : '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : 'white', cursor: 'pointer', transition: 'all 0.1s' }}>
-                         <div style={{ width:'18px', height:'18px', borderRadius:'4px', border: isSelected ? 'none' : '2px solid #cbd5e1', background: isSelected ? '#2563eb' : 'transparent', display:'grid', placeItems:'center' }}>{isSelected && <Check size={12} color="white"/>}</div>
-                         {student.photoUrl ? <img src={student.photoUrl} style={{width:'24px', height:'24px', borderRadius:'50%', objectFit:'cover'}}/> : <div style={{width:'24px', height:'24px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={14} color="#94a3b8"/></div>}
-                         <div style={{overflow:'hidden'}}><div style={{fontSize:'12px', fontWeight:'600', color: isSelected ? '#1e40af' : '#333', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{student.name}</div><div style={{fontSize:'10px', color: isSelected ? '#60a5fa' : '#94a3b8'}}>#{student.listNumber}</div></div>
-                      </div>
-                   )
-                })}
-              </div>
+                <div style={{ marginBottom: '10px' }}>
+                    <SchoolFilters 
+                        filters={filters} 
+                        onChange={setFilters} 
+                        showAllOption={true} 
+                    />
+                </div>
             </div>
 
             {/* EVALUACIÓN Y GUARDAR */}
