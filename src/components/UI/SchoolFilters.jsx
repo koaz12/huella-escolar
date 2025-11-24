@@ -1,5 +1,7 @@
 // src/components/UI/SchoolFilters.jsx
 import React from 'react';
+// 1. IMPORTAMOS LAS CONSTANTES (Subimos 2 niveles ../../)
+import { LEVELS, SHIFTS, GRADES, SECTIONS } from '../../utils/constants';
 
 export function SchoolFilters({ filters, onChange, showAllOption = true, layout = 'grid' }) {
   
@@ -17,13 +19,7 @@ export function SchoolFilters({ filters, onChange, showAllOption = true, layout 
     outline: 'none'
   };
 
-  // Definimos las opciones
-  const levels = ['Primaria', 'Secundaria'];
-  const shifts = ['Matutina', 'Vespertina', 'Extendida'];
-  const grades = ['1ro', '2do', '3ro', '4to', '5to', '6to'];
-  const sections = ['A', 'B', 'C', 'D', 'E'];
-
-  // Helper para renderizar opciones
+  // 2. USAMOS LAS CONSTANTES IMPORTADAS (Ya no están escritas a mano aquí)
   const renderOptions = (items, label) => (
     <>
       {showAllOption && <option value="Todos">Todos {label}</option>}
@@ -31,43 +27,26 @@ export function SchoolFilters({ filters, onChange, showAllOption = true, layout 
     </>
   );
 
-  // Estilo del contenedor (Grid o Flex)
   const containerStyle = layout === 'grid' 
     ? { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px' }
     : { display: 'flex', gap: '8px', flexWrap: 'wrap' };
 
   return (
     <div style={containerStyle}>
-      <select 
-        value={filters.level} 
-        onChange={(e) => handleChange('level', e.target.value)} 
-        style={commonStyle}
-      >
-        {renderOptions(levels, 'Niveles')}
+      <select value={filters.level} onChange={(e) => handleChange('level', e.target.value)} style={commonStyle}>
+        {renderOptions(LEVELS, 'Niveles')}
       </select>
 
-      <select 
-        value={filters.shift} 
-        onChange={(e) => handleChange('shift', e.target.value)} 
-        style={commonStyle}
-      >
-        {renderOptions(shifts, 'Tandas')}
+      <select value={filters.shift} onChange={(e) => handleChange('shift', e.target.value)} style={commonStyle}>
+        {renderOptions(SHIFTS, 'Tandas')}
       </select>
 
-      <select 
-        value={filters.grade} 
-        onChange={(e) => handleChange('grade', e.target.value)} 
-        style={commonStyle}
-      >
-        {renderOptions(grades, 'Grados')}
+      <select value={filters.grade} onChange={(e) => handleChange('grade', e.target.value)} style={commonStyle}>
+        {renderOptions(GRADES, 'Grados')}
       </select>
 
-      <select 
-        value={filters.section} 
-        onChange={(e) => handleChange('section', e.target.value)} 
-        style={commonStyle}
-      >
-        {renderOptions(sections, 'Sec.')}
+      <select value={filters.section} onChange={(e) => handleChange('section', e.target.value)} style={commonStyle}>
+        {renderOptions(SECTIONS, 'Sec.')}
       </select>
     </div>
   );

@@ -1,51 +1,37 @@
 // src/App.jsx
 import { useState, useEffect } from 'react';
-import { auth } from './firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Toaster, toast } from 'react-hot-toast'; 
-import { Camera, Users, Image as ImageIcon, LogOut, WifiOff, CloudOff } from 'lucide-react'; 
+import { Toaster } from 'react-hot-toast'; 
+import { Camera, Users, Image as ImageIcon, LogOut, CloudOff } from 'lucide-react'; 
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'; // <--- NUEVOS IMPORTS
 
+// Componentes
 import { Login } from './components/Login';
 import { CaptureForm } from './components/CaptureForm';
 import { SyncStatus } from './components/SyncStatus';
 import { StudentForm } from './components/StudentForm';
 import { EvidenceList } from './components/EvidenceList';
+import { useAuth } from './context/AuthContext';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [view, setView] = useState('capture'); 
-  const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth(); 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  
-  // ESTADO NUEVO: Para pasar datos entre pestañas (ej: ID del alumno a ver en galería)
-  const [viewData, setViewData] = useState(null);
+  const navigate = useNavigate(); // Hook para navegar
+  const location = useLocation(); // Hook para saber dónde estamos
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-
     const handleStatusChange = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
-
     return () => {
-      unsubscribe();
       window.removeEventListener('online', handleStatusChange);
       window.removeEventListener('offline', handleStatusChange);
     };
   }, []);
 
-  const handleLogout = () => { if(confirm("¿Cerrar sesión?")) signOut(auth); };
-
-  // Función para navegar con datos (La magia del enlace)
-  const navigateTo = (screen, data = null) => {
-      setViewData(data);
-      setView(screen);
+  const handleLogout = async () => { 
+      if(confirm("¿Cerrar sesión?")) await logout();
   };
 
-  if (loading) return <div style={{height:'100dvh', display:'grid', placeItems:'center'}}>Cargando...</div>;
   if (!user) return <Login />;
 
   return (
@@ -54,9 +40,10 @@ function App() {
 
       {/* HEADER */}
       <div style={{ flexShrink: 0, backgroundColor: 'white', padding: '12px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e1e4e8', zIndex: 10 }}>
-        <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a', display:'flex', alignItems:'center', gap:'8px'}}>
-          🏃‍♂️ Huella Escolar
-        </h2>
+        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+            <h2 style={{margin: 0, fontSize: '1.1rem', color: '#1a1a1a'}}>🏃‍♂️ Huella Escolar</h2>
+            <span style={{fontSize:'10px', color:'#666', background:'#f3f4f6', padding:'2px 6px', borderRadius:'4px'}}>Hola, {user.displayName?.split(' ')[0]}</span>
+        </div>
         <button onClick={handleLogout} style={{background:'transparent', border:'none', padding:'5px'}}><LogOut size={20} color="#666" /></button>
       </div>
 
@@ -67,42 +54,29 @@ function App() {
         </div>
       )}
 
-      {/* CONTENIDO */}
+      {/* CONTENIDO CON RUTAS REALES */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '15px', paddingBottom: '20px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
           {isOnline && <SyncStatus />} 
           
-          <div key={view} style={{ animation: 'fadeIn 0.2s ease-in' }}>
-            {view === 'capture' && <CaptureForm />}
-            {/* Pasamos la función navigateTo a StudentForm para que pueda mandar al usuario a la galería */}
-            {view === 'students' && <StudentForm onNavigate={navigateTo} />}
-            {/* Pasamos viewData (el ID del alumno) a EvidenceList */}
-            {view === 'gallery' && <EvidenceList initialStudentId={viewData} />}
-          </div>
+          <Routes>
+            {/* Ruta por defecto: redirigir a captura */}
+            <Route path="/" element={<Navigate to="/capture" replace />} />
+            
+            <Route path="/capture" element={<CaptureForm />} />
+            <Route path="/students" element={<StudentForm />} />
+            <Route path="/gallery" element={<EvidenceList />} />
+          </Routes>
+
         </div>
       </div>
 
-      {/* BARRA INFERIOR */}
-      <div style={{ 
-        flexShrink: 0,
-        backgroundColor: 'white', 
-        borderTop: '1px solid #e1e4e8',
-        display: 'flex', 
-        justifyContent: 'space-around',
-        padding: '8px 0',
-        
-        /* ESTO ES LO QUE EVITA QUE LOS BOTONES SE PEGUEN AL FONDO */
-        /* Usamos una suma: 10px de aire + lo que pida el celular */
-        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', 
-        
-        zIndex: 100
-      }}>
-          <NavButton icon={<Camera size={24} />} label="Captura" active={view==='capture'} onClick={() => navigateTo('capture')} />
-          <NavButton icon={<ImageIcon size={24} />} label="Galería" active={view==='gallery'} onClick={() => navigateTo('gallery')} />
-          <NavButton icon={<Users size={24} />} label="Alumnos" active={view==='students'} onClick={() => navigateTo('students')} />
+      {/* BARRA INFERIOR DE NAVEGACIÓN */}
+      <div style={{ flexShrink: 0, backgroundColor: 'white', borderTop: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-around', padding: '8px 0', paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', zIndex: 100 }}>
+          <NavButton icon={<Camera size={24} />} label="Captura" active={location.pathname === '/capture'} onClick={() => navigate('/capture')} />
+          <NavButton icon={<ImageIcon size={24} />} label="Galería" active={location.pathname === '/gallery'} onClick={() => navigate('/gallery')} />
+          <NavButton icon={<Users size={24} />} label="Alumnos" active={location.pathname === '/students'} onClick={() => navigate('/students')} />
       </div>
-
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } } @keyframes slideDown { from { height: 0; opacity: 0; } to { height: auto; opacity: 1; } }`}</style>
     </div>
   );
 }

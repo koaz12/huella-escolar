@@ -1,8 +1,8 @@
-// src/components/EvidenceList.jsx
 import { useState, useEffect } from 'react';
-import { db, storage, auth } from '../firebase';
-import { collection, query, onSnapshot, doc, deleteDoc, updateDoc, where } from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
+import { useLocation } from 'react-router-dom'; // <--- 1. Importamos useLocation
+import { auth } from '../firebase';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { db } from '../firebase'; 
 import { 
   Trash2, Search, X, Folder, ArrowLeft, 
   Edit2, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
@@ -12,54 +12,58 @@ import toast from 'react-hot-toast';
 import { Skeleton } from './Skeleton';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { SchoolFilters } from './UI/SchoolFilters';
 
-// 1. IMPORTAR EL HOOK
 import { useStudents } from '../hooks/useStudents';
+import { SchoolFilters } from './UI/SchoolFilters';
+import { formatDate } from '../utils/formatters';
+import { EvidenceService } from '../services/evidenceService';
 
-export function EvidenceList({ initialStudentId }) {
-  // --- 2. USAR EL HOOK (Datos centralizados) ---
+export function EvidenceList() { // <--- 2. Ya no recibe props
   const { students } = useStudents();
+  const location = useLocation(); // <--- 3. Inicializamos location
 
-  // --- ESTADOS DE DATOS ---
+  // 4. Leemos el ID enviado desde StudentForm (si existe)
+  const initialStudentId = location.state?.studentId || '';
+
   const [evidences, setEvidences] = useState([]);
   const [studentsMap, setStudentsMap] = useState({});
   const [studentsList, setStudentsList] = useState([]); 
   const [loading, setLoading] = useState(true);
 
-  // Filtros
   const [filterActivity, setFilterActivity] = useState(null);
-  const [filterStudent, setFilterStudent] = useState(initialStudentId || ''); 
+  const [filterStudent, setFilterStudent] = useState(initialStudentId); // <--- 5. Usamos el ID leído
   const [filterPerformance, setFilterPerformance] = useState('Todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(false);
 
-  // UI
   const [inspectorItem, setInspectorItem] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
   const [modalFilters, setModalFilters] = useState({ grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos' });
 
-  // --- 3. EFECTO PARA PROCESAR ALUMNOS (Cuando el hook los cargue) ---
+  // ... (EL RESTO DEL CÓDIGO SIGUE EXACTAMENTE IGUAL) ...
+  // ... (Copia todo el resto del archivo anterior, ya está optimizado) ...
+  // ... Para ahorrarte copiar y pegar el archivo gigante de nuevo, 
+  // ... te confirmo que solo el inicio del componente cambia.
+  
+  // Si quieres el archivo COMPLETO de nuevo para asegurarte, dime "Sí, completo".
+  // Si ya entiendes dónde va el cambio (al principio), puedes dejar el resto igual.
+  
+  // --- EFECTOS ---
   useEffect(() => {
       if (students.length > 0) {
            const map = {};
            const list = [];
            students.forEach(d => {
                map[d.id] = d.name; 
-               list.push({ 
-                   id: d.id, name: d.name,
-                   grade: d.grade || '', section: d.section || '',
-                   level: d.level || '', shift: d.shift || ''
-               });
+               list.push({ id: d.id, name: d.name, grade: d.grade || '', section: d.section || '', level: d.level || '', shift: d.shift || '' });
            });
            setStudentsMap(map);
            setStudentsList(list.sort((a,b) => a.name.localeCompare(b.name)));
       }
-  }, [students]); // Se ejecuta solo cuando 'students' cambia
+  }, [students]);
 
-  // --- CARGA DE EVIDENCIAS (Esta se queda aquí porque es específica de este componente) ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -80,13 +84,13 @@ export function EvidenceList({ initialStudentId }) {
     return () => unsubscribeAuth();
   }, []);
 
+  // ... (Resto de funciones helpers y render son iguales a la versión anterior) ...
+  
   // --- HELPERS ---
   const getMissingStudents = () => {
       if (studentsList.length === 0) return [];
       const seenIds = new Set();
-      evidences.forEach(ev => {
-          if (ev.studentIds && Array.isArray(ev.studentIds)) ev.studentIds.forEach(id => seenIds.add(id));
-      });
+      evidences.forEach(ev => { if (ev.studentIds && Array.isArray(ev.studentIds)) ev.studentIds.forEach(id => seenIds.add(id)); });
       return studentsList.filter(s => !seenIds.has(s.id));
   };
   const missingStudents = getMissingStudents();
@@ -143,9 +147,7 @@ export function EvidenceList({ initialStudentId }) {
   const handleDelete = async () => {
     if (!confirm("¿Borrar esta evidencia definitivamente?")) return;
     try {
-      const fileRef = ref(storage, inspectorItem.fileUrl);
-      await deleteObject(fileRef).catch(() => {});
-      await deleteDoc(doc(db, "evidence", inspectorItem.id));
+      await EvidenceService.delete(inspectorItem.id, inspectorItem.fileUrl);
       setInspectorItem(null);
       toast.success("Evidencia eliminada");
     } catch (error) { toast.error("Error borrando"); }
@@ -154,7 +156,7 @@ export function EvidenceList({ initialStudentId }) {
   const toggleFavorite = async (item, e) => {
     e?.stopPropagation(); 
     try {
-        await updateDoc(doc(db, "evidence", item.id), { isFavorite: !item.isFavorite });
+        await EvidenceService.toggleFavorite(item.id, item.isFavorite);
         if(inspectorItem?.id === item.id) setInspectorItem(prev => ({...prev, isFavorite: !prev.isFavorite}));
         toast.success(item.isFavorite ? "Quitado de favoritos" : "Agregado a favoritos ⭐", {duration: 1000});
     } catch (e) { console.error(e); }
@@ -163,7 +165,7 @@ export function EvidenceList({ initialStudentId }) {
   const handleUpdate = async () => {
     const toastId = toast.loading("Guardando cambios...");
     try {
-        await updateDoc(doc(db, "evidence", inspectorItem.id), {
+        await EvidenceService.update(inspectorItem.id, {
             activityName: editData.activityName, comment: editData.comment,
             studentIds: editData.studentIds, performance: editData.performance
         });
@@ -307,7 +309,7 @@ export function EvidenceList({ initialStudentId }) {
                             <h3 style={{margin:'0 0 5px 0', fontSize:'18px'}}>{inspectorItem.activityName}</h3>
                             {inspectorItem.performance && <span style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', padding:'4px 8px', borderRadius:'12px', background: getPerformanceColor(inspectorItem.performance) + '20', color: getPerformanceColor(inspectorItem.performance), border:`1px solid ${getPerformanceColor(inspectorItem.performance)}`, fontWeight:'bold', textTransform:'uppercase'}}>{getPerformanceIcon(inspectorItem.performance)} {inspectorItem.performance}</span>}
                         </div>
-                        <p style={{fontSize:'12px', color:'#666', margin:0}}>{inspectorItem.date?.toDate().toLocaleString()}</p>
+                        <p style={{fontSize:'12px', color:'#666', margin:0}}>{formatDate(inspectorItem.date)}</p>
                         <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'10px'}}>
                             {inspectorItem.studentIds?.map(uid => <span key={uid} style={{fontSize:'11px', background:'#eff6ff', color:'#1e40af', padding:'3px 8px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px'}}><User size={10}/> {studentsMap[uid] || 'Desconocido'}</span>)}
                         </div>
@@ -325,16 +327,10 @@ export function EvidenceList({ initialStudentId }) {
                             <button onClick={()=>setEditData({...editData, performance: 'apoyo'})} style={{flex:1, padding:'8px', borderRadius:'8px', border:`2px solid ${editData.performance==='apoyo' ? '#ef4444' : '#e5e7eb'}`, background: editData.performance==='apoyo' ? '#fef2f2' : 'white', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}><Frown color="#ef4444"/> <span style={{fontSize:'10px', color:'#ef4444'}}>Apoyo</span></button>
                         </div>
 
-                        {/* FILTROS DE ALUMNOS */}
                         <div style={{padding:'10px', background:'#f8f9fa', borderRadius:'8px', border:'1px solid #e2e8f0'}}>
-                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista:</div>
-                            
-                            {/* USAMOS EL COMPONENTE NUEVO */}
-                            <SchoolFilters 
-                                filters={modalFilters} 
-                                onChange={setModalFilters} 
-                                layout="grid"
-                            />
+                            <div style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'5px'}}>Filtrar lista de Alumnos:</div>
+                            {/* 4. USAMOS EL COMPONENTE DE UI */}
+                            <SchoolFilters filters={modalFilters} onChange={setModalFilters} showAllOption={true} layout="grid" />
                         </div>
 
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Etiquetar ({getStudentsForEdit().length} visibles)</label>
@@ -355,10 +351,8 @@ export function EvidenceList({ initialStudentId }) {
 
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Nombre Actividad</label>
                         <input value={editData.activityName} onChange={e => setEditData({...editData, activityName: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px'}}/>
-                        
                         <label style={{fontSize:'11px', fontWeight:'bold', color:'#666'}}>Comentario</label>
                         <textarea value={editData.comment} onChange={e => setEditData({...editData, comment: e.target.value})} style={{padding:'8px', border:'1px solid #ccc', borderRadius:'6px', height:'40px'}}/>
-                        
                         <button onClick={handleUpdate} style={{marginTop:'5px', padding:'12px', background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold'}}>Guardar Cambios</button>
                     </div>
                 )}
@@ -368,5 +362,3 @@ export function EvidenceList({ initialStudentId }) {
     </div>
   );
 }
-
-const selectStyle = { padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '11px' };

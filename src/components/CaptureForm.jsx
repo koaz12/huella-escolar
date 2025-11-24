@@ -1,32 +1,36 @@
 // src/components/CaptureForm.jsx
 import { useState, useEffect, useRef } from 'react';
 import { saveOffline } from '../db';
-import { db, storage, auth } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
-  FolderPlus, Image as ImageIcon, Film, X, Camera, Check, 
-  User, Filter, Search, Calendar, CheckSquare, Square,
+  FolderPlus, Film, X, Camera, Check, 
+  Filter, Search, Calendar, CheckSquare, Square,
   RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, 
-  Smile, Meh, Frown, Lock, Unlock
+  Smile, Meh, Frown, Lock, Unlock, Image as ImageIcon,
+  User // <--- ¡AQUÍ ESTÁ EL CULPABLE! Ya lo agregué.
 } from 'lucide-react';
-import { SchoolFilters } from './UI/SchoolFilters';
 
-// IMPORTAMOS NUESTROS NUEVOS HOOKS
-import { useStudents } from '../hooks/useStudents';
 import { useCamera } from '../hooks/useCamera';
+import { useStudents } from '../hooks/useStudents';
+import { EvidenceService } from '../services/evidenceService';
+import { TAGS, DEFAULT_FILTERS } from '../utils/constants';
+import { formatTime } from '../utils/formatters';
+
+// IMPORTAMOS UI KIT
+import { Button } from './UI/Button';
+import { Input, Select } from './UI/FormElements';
+import { Card } from './UI/Card';
 
 export function CaptureForm() {
-  // --- HOOKS PERSONALIZADOS (Lógica externalizada) ---
-  const { students } = useStudents(); // ¡Ya no hay useEffects gigantes aquí!
+  const { students } = useStudents();
   const { 
     isCameraOpen, videoRef, startCamera, stopCamera, 
     toggleFacingMode, toggleFlash, handleZoom, zoom, zoomCap, flashOn, facingMode 
   } = useCamera();
 
-  // --- ESTADOS LOCALES DE UI ---
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState([]); 
@@ -36,21 +40,19 @@ export function CaptureForm() {
   const [loading, setLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   
-  // Estados Inteligentes
   const [allActivities, setAllActivities] = useState([]); 
   const [suggestions, setSuggestions] = useState([]); 
   const [recentActivities, setRecentActivities] = useState([]); 
   const [keepData, setKeepData] = useState(false); 
 
-  // Filtros
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [filters, setFilters] = useState(() => {
       const saved = localStorage.getItem('captureFilters');
-      return saved ? JSON.parse(saved) : { level: 'Todos', shift: 'Todos', grade: 'Todos', section: 'Todos' };
+      return saved ? JSON.parse(saved) : DEFAULT_FILTERS;
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Refs y Estados extra para Grabación (Aun local porque es complejo moverlo al hook genérico todavía)
+  // Refs locales
   const canvasRef = useRef(null);
   const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
@@ -58,12 +60,10 @@ export function CaptureForm() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
-  
   const nativeVideoInputRef = useRef(null);
   const nativePhotoInputRef = useRef(null);
-  const AVAILABLE_TAGS = ['Evaluación', 'Práctica', 'Torneo', 'Conducta', 'Juego Libre'];
 
-  // --- CARGA DE ACTIVIDADES (Esto sigue aquí porque es específico de este form) ---
+  // ... (CARGA DE DATOS) ...
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -83,7 +83,6 @@ export function CaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
-  // --- BOTÓN ATRÁS ---
   useEffect(() => {
     if (isCameraOpen) {
       window.history.pushState({ cameraOpen: true }, "");
@@ -93,7 +92,7 @@ export function CaptureForm() {
     }
   }, [isCameraOpen]);
 
-  // --- HANDLERS ACTIVIDAD ---
+  // ... (HANDLERS) ...
   const handleActivityChange = (e) => {
       const val = e.target.value;
       setActivity(val);
@@ -104,7 +103,6 @@ export function CaptureForm() {
   };
   const selectActivity = (name) => { setActivity(name); setSuggestions([]); };
 
-  // --- LÓGICA FILTRADO (Usa los 'students' que vienen del hook) ---
   const visibleStudents = students.filter(student => {
     if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filters.level !== 'Todos' && student.level !== filters.level) return false;
@@ -126,7 +124,10 @@ export function CaptureForm() {
     else setSelectedStudents([...selectedStudents, id]);
   };
 
-  // --- CAPTURA (Usando Refs del Hook) ---
+  const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
+  const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
+
+  // ... (FUNCIONES DE CAMARA) ...
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -145,12 +146,9 @@ export function CaptureForm() {
     }, 'image/jpeg', 0.85);
   };
 
-  // --- GRABACIÓN (Lógica específica de este componente) ---
   const startRecording = () => {
-      // Accedemos al stream desde el ref del video porque el hook lo maneja
       const stream = videoRef.current?.srcObject;
       if (!stream) return;
-      
       chunksRef.current = [];
       try {
           const options = { mimeType: 'video/webm;codecs=vp8', videoBitsPerSecond: 1500000 }; 
@@ -179,13 +177,6 @@ export function CaptureForm() {
       }
   };
 
-  const formatTime = (seconds) => {
-      const mins = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  // --- AUXILIARES ---
   const openNativeVideo = () => { if (nativeVideoInputRef.current) nativeVideoInputRef.current.click(); };
   const openNativePhoto = () => { if (nativePhotoInputRef.current) nativePhotoInputRef.current.click(); };
 
@@ -203,9 +194,8 @@ export function CaptureForm() {
   };
   
   const removeFile = (index) => setFiles(prev => prev.filter((_, i) => i !== index));
-  const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
-  const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
+  // --- GUARDADO ---
   const handleSave = async (e) => {
     e.preventDefault();
     if (files.length === 0 || !activity) return toast.error("Falta foto/video o actividad");
@@ -224,19 +214,18 @@ export function CaptureForm() {
             try { fileToUpload = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }); } 
             catch (error) { console.error(error); }
           }
+          
           const docData = {
                activityName: activity, comment: comment, studentIds: selectedStudents, date: finalDate, teacherId: auth.currentUser.uid,
                grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
                section: filters.section === 'Todos' ? 'Varios' : filters.section,
                tags: tags, performance: performance
           };
+
           if (!navigator.onLine) {
              await saveOffline(fileToUpload, docData); 
           } else {
-             const storageRef = ref(storage, `evidencias/${auth.currentUser.uid}/${Date.now()}_${count}_${fileToUpload.name}`);
-             const snapshot = await uploadBytes(storageRef, fileToUpload);
-             const downloadURL = await getDownloadURL(snapshot.ref);
-             await addDoc(collection(db, "evidence"), { ...docData, fileUrl: downloadURL, fileType: file.type.startsWith('video/') ? 'video' : 'image' });
+             await EvidenceService.uploadAndCreate(fileToUpload, docData, auth.currentUser.uid);
           }
       }
       toast.success("¡Guardado!", { id: loadingToast });
@@ -251,17 +240,16 @@ export function CaptureForm() {
       if (p === 'apoyo') return { bg: '#fef2f2', border: '#ef4444', color: '#b91c1c' };
       return { bg: 'white', border: '#e5e7eb', color: '#6b7280' };
   };
-
   const activePerf = {
     logrado: { background:'#ecfdf5', borderColor:'#10b981', color:'#047857' },
     proceso: { background:'#fffbeb', borderColor:'#f59e0b', color:'#b45309' },
     apoyo: { background:'#fef2f2', borderColor:'#ef4444', color:'#b91c1c' }
   };
 
-  // --- UI: Mismo renderizado, solo conectando las funciones del hook ---
   return (
     <div style={{ paddingBottom:'20px' }}>
       
+      {/* CÁMARA OVERLAY */}
       {isCameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'black', zIndex: 9999, display:'flex', flexDirection:'column' }}>
             <div style={{padding:'15px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(0,0,0,0.3)', position:'absolute', top:0, left:0, right:0, zIndex:10}}>
@@ -271,16 +259,12 @@ export function CaptureForm() {
                 </div>
                 {isRecording && <div style={{color:'#ef4444', fontWeight:'bold', fontSize:'18px', display:'flex', alignItems:'center', gap:'5px'}}><div style={{width:10, height:10, background:'red', borderRadius:'50%'}}></div> {formatTime(recordingTime)}</div>}
             </div>
-            
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
-            
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
-                {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={e => handleZoom(Number(e.target.value))} style={{width:'100%', accentColor:'#2563eb'}} /><span style={{color:'white', fontSize:'12px'}}>{zoom}x</span></div>)}
-                
+                {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} /><span style={{color:'white', fontSize:'12px'}}>{zoom}x</span></div>)}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}><Check size={30} color="#10b981"/> <span style={{fontSize:'10px'}}>Listo ({files.length})</span></button>
-                    
                     <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'10px'}}>
                         {cameraMode === 'photo' ? (
                             <button onClick={capturePhoto} style={{ width:'70px', height:'70px', borderRadius:'50%', background:'white', border:'4px solid #e5e5e5', display:'grid', placeItems:'center', padding:0 }}><div style={{width:'60px', height:'60px', borderRadius:'50%', border:'2px solid black'}}></div></button>
@@ -292,56 +276,60 @@ export function CaptureForm() {
                             <button onClick={()=>!isRecording && setCameraMode('video')} style={{padding:'5px 12px', borderRadius:'16px', border:'none', background: cameraMode==='video' ? 'white' : 'transparent', color: cameraMode==='video' ? 'black' : 'white', fontSize:'12px', fontWeight:'bold'}}>Video</button>
                         </div>
                     </div>
-                    
                     {files.length > 0 ? (<div style={{width:'40px', height:'40px', borderRadius:'8px', overflow:'hidden', border:'2px solid white'}}>{files[files.length-1].type.startsWith('video/') ? <div style={{width:'100%', height:'100%', background:'#333', display:'grid', placeItems:'center'}}><Video size={20} color="white"/></div> : <img src={URL.createObjectURL(files[files.length-1])} style={{width:'100%', height:'100%', objectFit:'cover'}} />}</div>) : <div style={{width:'40px'}}></div>}
                 </div>
             </div>
         </div>
       )}
 
-      {/* ... RESTO DEL FORMULARIO (Idéntico, solo se limpió lógica) ... */}
-      <div style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
-              <h3 style={{margin: 0, color: '#1f2937'}}>📸 Nueva Evidencia</h3>
-              <div style={{position:'relative'}}>
+      {/* FORMULARIO EN CARD VISUAL */}
+      <Card title="Nueva Evidencia" icon={Camera} 
+            actions={
+                <div style={{position:'relative'}}>
                   <Calendar size={16} style={{position:'absolute', left:'8px', top:'8px', color:'#666'}}/>
-                  <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} style={{padding:'6px 6px 6px 28px', borderRadius:'8px', border:'1px solid #ccc', fontSize:'13px', color:'#444', fontWeight:'500'}}/>
-              </div>
-          </div>
-
-          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} style={{padding:'6px 6px 6px 28px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'12px', color:'#444', fontWeight:'500'}}/>
+                </div>
+            }>
+          
+          <form onSubmit={handleSave}>
             
-            <div style={{position:'relative'}}>
-                <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>ACTIVIDAD / TEMA</label>
+            {/* ACTIVIDAD */}
+            <div style={{marginBottom:'15px'}}>
                 {recentActivities.length > 0 && (
                     <div style={{display:'flex', gap:'8px', overflowX:'auto', paddingBottom:'8px', marginBottom:'5px'}}>
-                        <div style={{display:'flex', alignItems:'center', gap:'4px', color:'#666', fontSize:'10px', whiteSpace:'nowrap'}}><Clock size={10}/> Recientes:</div>
                         {recentActivities.map((act, i) => (
-                            <button key={i} type="button" onClick={() => setActivity(act)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'12px', border:'1px solid #ddd', background: activity === act ? '#dbeafe' : '#f3f4f6', color: activity === act ? '#1e40af' : '#4b5563', whiteSpace:'nowrap', cursor:'pointer'}}>
-                                {act}
-                            </button>
+                            <button key={i} type="button" onClick={() => setActivity(act)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'12px', border:'1px solid #ddd', background: activity === act ? '#dbeafe' : '#f3f4f6', color: activity === act ? '#1e40af' : '#4b5563', whiteSpace:'nowrap', cursor:'pointer'}}>{act}</button>
                         ))}
                     </div>
                 )}
-                <input type="text" value={activity} onChange={handleActivityChange} placeholder="Ej: Baloncesto..." style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #3b82f6', outline:'none', boxSizing:'border-box', backgroundColor: '#eff6ff' }} onBlur={() => setTimeout(() => setSuggestions([]), 200)}/>
-                {suggestions.length > 0 && (
-                    <ul style={{position:'absolute', top:'100%', left:0, right:0, background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
-                        {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
-                    </ul>
-                )}
-                <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'8px'}}>
-                    {AVAILABLE_TAGS.map(tag => (
-                        <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
+                <div style={{position:'relative'}}>
+                    <Input 
+                        label="Actividad / Tema" 
+                        value={activity} 
+                        onChange={handleActivityChange} 
+                        placeholder="Ej: Baloncesto..." 
+                        onBlur={() => setTimeout(() => setSuggestions([]), 200)}
+                    />
+                    {suggestions.length > 0 && (
+                        <ul style={{position:'absolute', top:'100%', left:0, right:0, background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
+                            {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
+                        </ul>
+                    )}
+                </div>
+                <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'-5px'}}>
+                    {TAGS.map(tag => (
+                        <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'10px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
                             {tags.includes(tag) && <Check size={10} style={{marginRight:'3px'}}/>} {tag}
                         </button>
                     ))}
                 </div>
             </div>
 
+            {/* BOTONES DE CAPTURA */}
             <input type="file" accept="video/*" capture="environment" ref={nativeVideoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
             <input type="file" accept="image/*" capture="environment" ref={nativePhotoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
 
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px'}}>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px', marginBottom:'15px'}}>
                 <button type="button" onClick={() => startCamera('photo')} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Camera size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Web</div></button>
                 <button type="button" onClick={openNativePhoto} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><ImageIcon size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Foto</div></button>
                 <button type="button" onClick={openNativeVideo} style={{border:'none', background:'#fef2f2', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#dc2626', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Smartphone size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Video</div></button>
@@ -349,7 +337,7 @@ export function CaptureForm() {
             </div>
 
             {files.length > 0 && (
-                <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb'}}>
+                <div style={{display:'flex', gap:'8px', overflowX:'auto', padding:'10px', background:'#f9fafb', borderRadius:'8px', border:'1px solid #e5e7eb', marginBottom:'15px'}}>
                     {files.map((f, i) => (
                         <div key={i} onClick={() => setPreviewFile(f)} style={{position:'relative', minWidth:'70px', height:'70px', borderRadius:'8px', overflow:'hidden', border:'1px solid #ddd', flexShrink:0, background:'white', cursor:'zoom-in'}}>
                             {f.type.startsWith('video/') ? <Film size={24} style={{position:'absolute', top:'22px', left:'22px', color:'#666'}}/> : <img src={URL.createObjectURL(f)} style={{width:'100%', height:'100%', objectFit:'cover'}}/>}
@@ -359,20 +347,20 @@ export function CaptureForm() {
                 </div>
             )}
 
-            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box' }} />
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box', fontFamily:'inherit', marginBottom:'15px' }} />
 
-            <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            {/* SECCIÓN ALUMNOS */}
+            <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom:'15px' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                   <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-                 <select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)} style={selectStyle}><option value="Todos">Todos Niveles</option><option>Primaria</option><option>Secundaria</option></select>
-                 <select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)} style={selectStyle}><option value="Todos">Todas Tandas</option><option>Matutina</option><option>Vespertina</option></select>
-                 <select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)} style={selectStyle}><option value="Todos">Todos Grados</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</select>
-                 <select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)} style={selectStyle}><option value="Todos">Todas Sec.</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</select>
+                 <Select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)}><option value="Todos">Todos Niv.</option><option>Primaria</option><option>Secundaria</option></Select>
+                 <Select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)}><option value="Todos">Todas Tan.</option><option>Matutina</option><option>Vespertina</option></Select>
+                 <Select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)}><option value="Todos">Todos Gr.</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</Select>
+                 <Select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)}><option value="Todos">Todas Sec.</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</Select>
               </div>
               
-              {/* TOGGLE SELECCIONAR TODO */}
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
                   <div style={{position:'relative', flex:1}}>
                       <Search size={14} style={{position:'absolute', left:'8px', top:'8px', color:'#94a3b8'}}/>
@@ -383,19 +371,24 @@ export function CaptureForm() {
                   </button>
               </div>
 
-              {/* GRILLA ALUMNOS */}
-                <div style={{ marginBottom: '10px' }}>
-                    <SchoolFilters 
-                        filters={filters} 
-                        onChange={setFilters} 
-                        showAllOption={true} 
-                    />
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
+                {visibleStudents.length === 0 && <p style={{gridColumn:'1/-1', textAlign:'center', color:'#999', fontSize:'12px', padding:'10px'}}>No hay alumnos con estos filtros.</p>}
+                {visibleStudents.map(student => {
+                   const isSelected = selectedStudents.includes(student.id);
+                   return (
+                      <div key={student.id} onClick={() => toggleStudent(student.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '8px', border: isSelected ? '1px solid #2563eb' : '1px solid #e2e8f0', background: isSelected ? '#eff6ff' : 'white', cursor: 'pointer', transition: 'all 0.1s' }}>
+                         <div style={{ width:'18px', height:'18px', borderRadius:'4px', border: isSelected ? 'none' : '2px solid #cbd5e1', background: isSelected ? '#2563eb' : 'transparent', display:'grid', placeItems:'center' }}>{isSelected && <Check size={12} color="white"/>}</div>
+                         {student.photoUrl ? <img src={student.photoUrl} style={{width:'24px', height:'24px', borderRadius:'50%', objectFit:'cover'}}/> : <div style={{width:'24px', height:'24px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={14} color="#94a3b8"/></div>}
+                         <div style={{overflow:'hidden'}}><div style={{fontSize:'12px', fontWeight:'600', color: isSelected ? '#1e40af' : '#333', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{student.name}</div><div style={{fontSize:'10px', color: isSelected ? '#60a5fa' : '#94a3b8'}}>#{student.listNumber}</div></div>
+                      </div>
+                   )
+                })}
+              </div>
             </div>
 
             {/* EVALUACIÓN Y GUARDAR */}
             <div style={{background:'#f9fafb', padding:'15px', borderRadius:'12px', border:'1px solid #e5e7eb'}}>
-                <label style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'8px', display:'block'}}>EVALUACIÓN (OPCIONAL)</label>
+                <label style={{fontSize:'11px', fontWeight:'bold', color:'#666', marginBottom:'8px', display:'block'}}>EVALUACIÓN</label>
                 <div style={{display:'flex', gap:'10px', marginBottom:'15px'}}>
                     <button type="button" onClick={()=>setPerformance('logrado')} style={{...perfBtnStyle, ...(performance==='logrado'?activePerf.logrado:{})}}><Smile/> Logrado</button>
                     <button type="button" onClick={()=>setPerformance('proceso')} style={{...perfBtnStyle, ...(performance==='proceso'?activePerf.proceso:{})}}><Meh/> Proceso</button>
@@ -404,17 +397,15 @@ export function CaptureForm() {
                 
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                     <div style={{fontSize:'12px', color:'#666'}}>Guardando <strong>{files.length} archivos</strong> para <strong>{selectedStudents.length} alumnos</strong></div>
-                    <button type="button" onClick={()=>setKeepData(!keepData)} style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', border:'none', background:'transparent', color: keepData ? '#2563eb' : '#666', cursor:'pointer'}}>
-                        {keepData ? <Lock size={14}/> : <Unlock size={14}/>} {keepData ? 'Mantener Datos' : 'Limpiar'}
-                    </button>
+                    <button type="button" onClick={()=>setKeepData(!keepData)} style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', border:'none', background:'transparent', color: keepData ? '#2563eb' : '#666', cursor:'pointer'}}>{keepData ? <Lock size={14}/> : <Unlock size={14}/>} {keepData ? 'Mantener Datos' : 'Limpiar'}</button>
                 </div>
 
-                <button type="submit" disabled={loading} style={{ width:'100%', backgroundColor: '#2563eb', color: 'white', padding: '14px', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', boxShadow:'0 4px 10px rgba(37, 99, 235, 0.3)' }}>
+                <Button type="submit" disabled={loading}>
                   {loading ? 'Guardando...' : `💾 Guardar Evidencia`}
-                </button>
+                </Button>
             </div>
           </form>
-      </div>
+      </Card>
 
       {previewFile && (
           <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:10000, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}}>
@@ -426,10 +417,9 @@ export function CaptureForm() {
   );
 }
 
-const selectStyle = { padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', width:'100%', background:'white' };
 const perfBtnStyle = { flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #e5e7eb', background:'white', color:'#6b7280', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', fontSize:'11px', fontWeight:'bold', cursor:'pointer', transition:'all 0.2s' };
 const activePerf = {
     logrado: { background:'#ecfdf5', borderColor:'#10b981', color:'#047857' },
     proceso: { background:'#fffbeb', borderColor:'#f59e0b', color:'#b45309' },
     apoyo: { background:'#fef2f2', borderColor:'#ef4444', color:'#b91c1c' }
-};
+  };
