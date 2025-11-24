@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { saveOffline } from '../db';
 import { auth, db } from '../firebase';
-import { collection, addDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'; 
+import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 import imageCompression from 'browser-image-compression';
 import { 
@@ -10,27 +10,32 @@ import {
   Filter, Search, Calendar, CheckSquare, Square,
   RefreshCw, Zap, ZoomIn, Video, Smartphone, Clock, 
   Smile, Meh, Frown, Lock, Unlock, Image as ImageIcon,
-  User // <--- ¡AQUÍ ESTÁ EL CULPABLE! Ya lo agregué.
+  User, GraduationCap, School 
 } from 'lucide-react';
 
 import { useCamera } from '../hooks/useCamera';
 import { useStudents } from '../hooks/useStudents';
 import { EvidenceService } from '../services/evidenceService';
-import { TAGS, DEFAULT_FILTERS } from '../utils/constants';
+import { TAGS, DEFAULT_FILTERS, LEVELS, SHIFTS, GRADES, SECTIONS } from '../utils/constants';
 import { formatTime } from '../utils/formatters';
 
-// IMPORTAMOS UI KIT
+// UI KIT
 import { Button } from './UI/Button';
 import { Input, Select } from './UI/FormElements';
 import { Card } from './UI/Card';
 
 export function CaptureForm() {
   const { students } = useStudents();
+  
+  // 1. USAMOS EL HOOK (Importamos estados y funciones de la cámara AQUÍ)
   const { 
     isCameraOpen, videoRef, startCamera, stopCamera, 
-    toggleFacingMode, toggleFlash, handleZoom, zoom, zoomCap, flashOn, facingMode 
+    toggleFacingMode, toggleFlash, handleZoom, zoom, zoomCap, flashOn, facingMode,
+    cameraStream // Necesitamos el stream del hook para grabar video
   } = useCamera();
 
+  // --- ESTADOS LOCALES (Solo lo que NO maneja el hook) ---
+  const [captureContext, setCaptureContext] = useState('class'); 
   const [activity, setActivity] = useState('');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState([]); 
@@ -46,13 +51,15 @@ export function CaptureForm() {
   const [keepData, setKeepData] = useState(false); 
 
   const [selectedStudents, setSelectedStudents] = useState([]);
+  
+  // Filtros
   const [filters, setFilters] = useState(() => {
       const saved = localStorage.getItem('captureFilters');
       return saved ? JSON.parse(saved) : DEFAULT_FILTERS;
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Refs locales
+  // Estados de Grabación Local
   const canvasRef = useRef(null);
   const [cameraMode, setCameraMode] = useState('photo');
   const [isRecording, setIsRecording] = useState(false);
@@ -60,10 +67,12 @@ export function CaptureForm() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  
+  // Refs Inputs Nativos
   const nativeVideoInputRef = useRef(null);
   const nativePhotoInputRef = useRef(null);
 
-  // ... (CARGA DE DATOS) ...
+  // --- CARGA DE DATOS ---
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
@@ -71,9 +80,8 @@ export function CaptureForm() {
         const unsubHistory = onSnapshot(qHistory, (qs) => {
             const namesSet = new Set();
             qs.forEach(doc => { const act = doc.data().activityName; if(act) namesSet.add(act); });
-            const uniqueNames = Array.from(namesSet);
-            setAllActivities(uniqueNames);
-            setRecentActivities(uniqueNames.slice(0, 5));
+            setAllActivities(Array.from(namesSet));
+            setRecentActivities(Array.from(namesSet).slice(0, 5));
         });
         return () => unsubHistory();
       }
@@ -83,6 +91,7 @@ export function CaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
+  // Lógica Botón Atrás (Para cerrar cámara)
   useEffect(() => {
     if (isCameraOpen) {
       window.history.pushState({ cameraOpen: true }, "");
@@ -92,7 +101,7 @@ export function CaptureForm() {
     }
   }, [isCameraOpen]);
 
-  // ... (HANDLERS) ...
+  // --- HANDLERS ---
   const handleActivityChange = (e) => {
       const val = e.target.value;
       setActivity(val);
@@ -103,12 +112,17 @@ export function CaptureForm() {
   };
   const selectActivity = (name) => { setActivity(name); setSuggestions([]); };
 
+  // --- FILTRADO DE ALUMNOS ---
   const visibleStudents = students.filter(student => {
+    // 1. Buscador texto
     if (searchTerm !== '' && !student.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    
+    // 2. Filtros (Aplicamos SIEMPRE para poder buscar en toda la escuela si se requiere)
     if (filters.level !== 'Todos' && student.level !== filters.level) return false;
     if (filters.shift !== 'Todos' && student.shift !== filters.shift) return false;
     if (filters.grade !== 'Todos' && student.grade !== filters.grade) return false;
     if (filters.section !== 'Todos' && student.section !== filters.section) return false;
+    
     return true;
   });
 
@@ -127,7 +141,9 @@ export function CaptureForm() {
   const toggleTag = (tag) => { if (tags.includes(tag)) setTags(prev => prev.filter(t => t !== tag)); else setTags(prev => [...prev, tag]); };
   const handleFilterChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
 
-  // ... (FUNCIONES DE CAMARA) ...
+  // --- FUNCIONES DE CAPTURA (LOCALES) ---
+  // NOTA: startCamera, stopCamera, toggleFacingMode... YA NO ESTÁN AQUÍ (Vienen del Hook)
+
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -135,6 +151,7 @@ export function CaptureForm() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
+    // Espejo si es frontal
     if (facingMode === 'user') { context.translate(canvas.width, 0); context.scale(-1, 1); }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob((blob) => {
@@ -147,12 +164,13 @@ export function CaptureForm() {
   };
 
   const startRecording = () => {
-      const stream = videoRef.current?.srcObject;
-      if (!stream) return;
+      // Usamos el stream que viene del Hook
+      if (!cameraStream) return;
+      
       chunksRef.current = [];
       try {
           const options = { mimeType: 'video/webm;codecs=vp8', videoBitsPerSecond: 1500000 }; 
-          const mediaRecorder = new MediaRecorder(stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
+          const mediaRecorder = new MediaRecorder(cameraStream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
           mediaRecorderRef.current = mediaRecorder;
           mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
           mediaRecorder.onstop = () => {
@@ -215,11 +233,20 @@ export function CaptureForm() {
             catch (error) { console.error(error); }
           }
           
+          const isSchoolMode = captureContext === 'school';
+          
           const docData = {
-               activityName: activity, comment: comment, studentIds: selectedStudents, date: finalDate, teacherId: auth.currentUser.uid,
-               grade: filters.grade === 'Todos' ? 'Varios' : filters.grade,
-               section: filters.section === 'Todos' ? 'Varios' : filters.section,
-               tags: tags, performance: performance
+               activityName: activity, 
+               comment: comment, 
+               studentIds: selectedStudents, 
+               date: finalDate, 
+               teacherId: auth.currentUser.uid,
+               // Guardamos filtros actuales o 'General' si es evento escolar
+               grade: isSchoolMode ? 'General' : (filters.grade === 'Todos' ? 'Varios' : filters.grade),
+               section: isSchoolMode ? 'General' : (filters.section === 'Todos' ? 'Varios' : filters.section),
+               level: isSchoolMode ? 'Institucional' : filters.level,
+               tags: [...tags, isSchoolMode ? 'Evento Escolar' : 'Clase'],
+               performance: performance
           };
 
           if (!navigator.onLine) {
@@ -234,12 +261,7 @@ export function CaptureForm() {
     } catch (error) { toast.error("Error: " + error.message, { id: loadingToast }); } finally { setLoading(false); }
   };
 
-  const getPerfColor = (p) => {
-      if (p === 'logrado') return { bg: '#ecfdf5', border: '#10b981', color: '#047857' };
-      if (p === 'proceso') return { bg: '#fffbeb', border: '#f59e0b', color: '#b45309' };
-      if (p === 'apoyo') return { bg: '#fef2f2', border: '#ef4444', color: '#b91c1c' };
-      return { bg: 'white', border: '#e5e7eb', color: '#6b7280' };
-  };
+  const perfBtnStyle = { flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #e5e7eb', background:'white', color:'#6b7280', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', fontSize:'11px', fontWeight:'bold', cursor:'pointer', transition:'all 0.2s' };
   const activePerf = {
     logrado: { background:'#ecfdf5', borderColor:'#10b981', color:'#047857' },
     proceso: { background:'#fffbeb', borderColor:'#f59e0b', color:'#b45309' },
@@ -262,7 +284,7 @@ export function CaptureForm() {
             <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', flex:1, objectFit:'cover', transform: facingMode==='user' ? 'scaleX(-1)' : 'none' }}></video>
             <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
             <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'20px', background:'linear-gradient(to top, black, transparent)' }}>
-                {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} /><span style={{color:'white', fontSize:'12px'}}>{zoom}x</span></div>)}
+                {zoomCap && (<div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', padding:'0 20px'}}><ZoomIn size={20} color="white"/><input type="range" min={zoomCap.min} max={zoomCap.max} step={zoomCap.step} value={zoom} onChange={handleZoom} style={{width:'100%', accentColor:'#2563eb'}} /></div>)}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <button onClick={stopCamera} style={{ color:'white', background:'transparent', border:'none', display:'flex', flexDirection:'column', alignItems:'center' }}><Check size={30} color="#10b981"/> <span style={{fontSize:'10px'}}>Listo ({files.length})</span></button>
                     <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'10px'}}>
@@ -282,40 +304,44 @@ export function CaptureForm() {
         </div>
       )}
 
-      {/* FORMULARIO EN CARD VISUAL */}
-      <Card title="Nueva Evidencia" icon={Camera} 
-            actions={
-                <div style={{position:'relative'}}>
-                  <Calendar size={16} style={{position:'absolute', left:'8px', top:'8px', color:'#666'}}/>
-                  <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} style={{padding:'6px 6px 6px 28px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'12px', color:'#444', fontWeight:'500'}}/>
-                </div>
-            }>
-          
-          <form onSubmit={handleSave}>
+      <Card title="Nueva Evidencia" icon={Camera} actions={
+          <div style={{position:'relative'}}>
+            <Calendar size={16} style={{position:'absolute', left:'8px', top:'8px', color:'#666'}}/>
+            <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} style={{padding:'6px 6px 6px 28px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'12px', color:'#444', fontWeight:'500'}}/>
+          </div>
+      }>
+          {/* TABS CONTEXTO */}
+          <div style={{display:'flex', gap:'10px', marginBottom:'20px', borderBottom:'1px solid #eee', paddingBottom:'10px'}}>
+              <button type="button" onClick={()=>setCaptureContext('class')} style={{flex:1, padding:'10px', borderRadius:'8px', border:'none', background: captureContext==='class' ? '#2563eb' : 'transparent', color: captureContext==='class' ? 'white' : '#666', fontWeight:'bold', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px'}}>
+                  <GraduationCap size={18}/> Clase
+              </button>
+              <button type="button" onClick={()=>setCaptureContext('school')} style={{flex:1, padding:'10px', borderRadius:'8px', border:'none', background: captureContext==='school' ? '#7c3aed' : 'transparent', color: captureContext==='school' ? 'white' : '#666', fontWeight:'bold', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px'}}>
+                  <School size={18}/> Evento
+              </button>
+          </div>
+
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             
             {/* ACTIVIDAD */}
-            <div style={{marginBottom:'15px'}}>
+            <div style={{position:'relative'}}>
+                <label style={{fontSize:'11px', fontWeight:'bold', color:'#6b7280', marginBottom:'4px', display:'block'}}>
+                    {captureContext === 'class' ? 'ACTIVIDAD / TEMA' : 'NOMBRE DEL EVENTO'}
+                </label>
+                
                 {recentActivities.length > 0 && (
                     <div style={{display:'flex', gap:'8px', overflowX:'auto', paddingBottom:'8px', marginBottom:'5px'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:'4px', color:'#666', fontSize:'10px', whiteSpace:'nowrap'}}><Clock size={10}/> Recientes:</div>
                         {recentActivities.map((act, i) => (
                             <button key={i} type="button" onClick={() => setActivity(act)} style={{fontSize:'11px', padding:'4px 10px', borderRadius:'12px', border:'1px solid #ddd', background: activity === act ? '#dbeafe' : '#f3f4f6', color: activity === act ? '#1e40af' : '#4b5563', whiteSpace:'nowrap', cursor:'pointer'}}>{act}</button>
                         ))}
                     </div>
                 )}
-                <div style={{position:'relative'}}>
-                    <Input 
-                        label="Actividad / Tema" 
-                        value={activity} 
-                        onChange={handleActivityChange} 
-                        placeholder="Ej: Baloncesto..." 
-                        onBlur={() => setTimeout(() => setSuggestions([]), 200)}
-                    />
-                    {suggestions.length > 0 && (
-                        <ul style={{position:'absolute', top:'100%', left:0, right:0, background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
-                            {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
-                        </ul>
-                    )}
-                </div>
+                <Input value={activity} onChange={handleActivityChange} placeholder="Escribe aquí..." onBlur={() => setTimeout(() => setSuggestions([]), 200)} />
+                {suggestions.length > 0 && (
+                    <ul style={{position:'absolute', top:'100%', left:0, right:0, marginTop:'5px', background:'white', border:'1px solid #ddd', borderRadius:'8px', zIndex:50, listStyle:'none', padding:0, margin:0, boxShadow:'0 4px 10px rgba(0,0,0,0.1)', maxHeight:'150px', overflowY:'auto'}}>
+                        {suggestions.map((sug, i) => (<li key={i} onClick={() => selectActivity(sug)} style={{padding:'10px', borderBottom:'1px solid #eee', cursor:'pointer', fontSize:'14px', color:'#333'}}>{sug}</li>))}
+                    </ul>
+                )}
                 <div style={{display:'flex', gap:'5px', flexWrap:'wrap', marginTop:'-5px'}}>
                     {TAGS.map(tag => (
                         <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{fontSize:'10px', padding:'4px 10px', borderRadius:'15px', border:'1px solid', borderColor: tags.includes(tag) ? '#2563eb' : '#e5e7eb', background: tags.includes(tag) ? '#eff6ff' : 'white', color: tags.includes(tag) ? '#1d4ed8' : '#6b7280', cursor:'pointer'}}>
@@ -325,11 +351,10 @@ export function CaptureForm() {
                 </div>
             </div>
 
-            {/* BOTONES DE CAPTURA */}
             <input type="file" accept="video/*" capture="environment" ref={nativeVideoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
             <input type="file" accept="image/*" capture="environment" ref={nativePhotoInputRef} onChange={handleFilesChange} style={{display:'none'}} />
 
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px', marginBottom:'15px'}}>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'8px', marginBottom:'10px'}}>
                 <button type="button" onClick={() => startCamera('photo')} style={{border:'none', background:'#ecfdf5', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#059669', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Camera size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>Web</div></button>
                 <button type="button" onClick={openNativePhoto} style={{border:'none', background:'#eff6ff', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#2563eb', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><ImageIcon size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Foto</div></button>
                 <button type="button" onClick={openNativeVideo} style={{border:'none', background:'#fef2f2', padding:'10px', borderRadius:'8px', cursor:'pointer', color:'#dc2626', display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'}}><Smartphone size={20}/><div style={{fontWeight:'bold', fontSize:'9px'}}>HQ Video</div></button>
@@ -347,18 +372,34 @@ export function CaptureForm() {
                 </div>
             )}
 
-            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box', fontFamily:'inherit', marginBottom:'15px' }} />
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Comentarios..." style={{ padding: '10px', height: '50px', borderRadius: '8px', border: '1px solid #d1d5db', width:'100%', boxSizing:'border-box', fontFamily:'inherit', marginBottom:'10px' }} />
 
             {/* SECCIÓN ALUMNOS */}
             <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom:'15px' }}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
-                  <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}><Filter size={12}/> FILTRAR CLASE:</div>
+                  <div style={{fontSize:'11px', fontWeight:'bold', color:'#64748b', display:'flex', alignItems:'center', gap:'4px'}}>
+                      <Filter size={12}/> {captureContext === 'class' ? 'FILTRAR CLASE' : 'PARTICIPANTES (OPCIONAL)'}
+                  </div>
               </div>
+              
+              {/* FILTROS SIEMPRE VISIBLES */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px', marginBottom: '10px' }}>
-                 <Select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)}><option value="Todos">Todos Niv.</option><option>Primaria</option><option>Secundaria</option></Select>
-                 <Select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)}><option value="Todos">Todas Tan.</option><option>Matutina</option><option>Vespertina</option></Select>
-                 <Select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)}><option value="Todos">Todos Gr.</option>{['1ro','2do','3ro','4to','5to','6to'].map(o=><option key={o}>{o}</option>)}</Select>
-                 <Select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)}><option value="Todos">Todas Sec.</option>{['A','B','C','D','E'].map(l=><option key={l}>{l}</option>)}</Select>
+                 <Select value={filters.level} onChange={e => handleFilterChange('level', e.target.value)}>
+                     <option value="Todos">Todos Niveles</option>
+                     {LEVELS.map(l => <option key={l}>{l}</option>)}
+                 </Select>
+                 <Select value={filters.shift} onChange={e => handleFilterChange('shift', e.target.value)}>
+                     <option value="Todos">Todas Tandas</option>
+                     {SHIFTS.map(s => <option key={s}>{s}</option>)}
+                 </Select>
+                 <Select value={filters.grade} onChange={e => handleFilterChange('grade', e.target.value)}>
+                     <option value="Todos">Todos Grados</option>
+                     {GRADES.map(g => <option key={g}>{g}</option>)}
+                 </Select>
+                 <Select value={filters.section} onChange={e => handleFilterChange('section', e.target.value)}>
+                     <option value="Todos">Todas Sec.</option>
+                     {SECTIONS.map(s => <option key={s}>{s}</option>)}
+                 </Select>
               </div>
               
               <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
@@ -394,15 +435,11 @@ export function CaptureForm() {
                     <button type="button" onClick={()=>setPerformance('proceso')} style={{...perfBtnStyle, ...(performance==='proceso'?activePerf.proceso:{})}}><Meh/> Proceso</button>
                     <button type="button" onClick={()=>setPerformance('apoyo')} style={{...perfBtnStyle, ...(performance==='apoyo'?activePerf.apoyo:{})}}><Frown/> Apoyo</button>
                 </div>
-                
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
-                    <div style={{fontSize:'12px', color:'#666'}}>Guardando <strong>{files.length} archivos</strong> para <strong>{selectedStudents.length} alumnos</strong></div>
+                    <div style={{fontSize:'12px', color:'#666'}}>Guardando <strong>{files.length} archivos</strong></div>
                     <button type="button" onClick={()=>setKeepData(!keepData)} style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'11px', border:'none', background:'transparent', color: keepData ? '#2563eb' : '#666', cursor:'pointer'}}>{keepData ? <Lock size={14}/> : <Unlock size={14}/>} {keepData ? 'Mantener Datos' : 'Limpiar'}</button>
                 </div>
-
-                <Button type="submit" disabled={loading}>
-                  {loading ? 'Guardando...' : `💾 Guardar Evidencia`}
-                </Button>
+                <Button type="submit" disabled={loading}>{loading ? 'Guardando...' : `💾 Guardar Evidencia`}</Button>
             </div>
           </form>
       </Card>
