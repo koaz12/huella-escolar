@@ -1,8 +1,7 @@
 // src/components/StudentForm.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { storage, auth } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase } from '../supabase';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { 
@@ -64,7 +63,8 @@ export function StudentForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!auth.currentUser) return toast.error("Inicia sesión");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return toast.error("Inicia sesión");
     if (Number(formData.listNumber) < 1) return toast.error("El número de lista debe ser 1 o mayor");
     
     setLoading(true);
@@ -72,15 +72,17 @@ export function StudentForm() {
 
     try {
       if (formData.studentId) {
-          const isDuplicate = await StudentService.checkDuplicateId(formData.studentId, auth.currentUser.uid, editingId);
+          const isDuplicate = await StudentService.checkDuplicateId(formData.studentId, session.user.id, editingId);
           if (isDuplicate) { toast.error(`⛔ El ID "${formData.studentId}" ya existe.`, { id: toastId }); setLoading(false); return; }
       }
 
       let photoUrl = formData.photoUrl;
       if (photoFile) {
-        const storageRef = ref(storage, `perfiles_alumnos/${auth.currentUser.uid}/${Date.now()}_${photoFile.name}`);
-        const snapshot = await uploadBytes(storageRef, photoFile);
-        photoUrl = await getDownloadURL(snapshot.ref);
+        const fileName = `${session.user.id}/${Date.now()}_${photoFile.name}`;
+        const { error: uploadError } = await supabase.storage.from('perfiles_alumnos').upload(fileName, photoFile);
+        if (!uploadError) {
+             photoUrl = supabase.storage.from('perfiles_alumnos').getPublicUrl(fileName).data.publicUrl;
+        }
       }
 
       const studentData = { ...formData, photoUrl };
@@ -90,7 +92,7 @@ export function StudentForm() {
         toast.success("Alumno actualizado", { id: toastId });
         setEditingId(null);
       } else {
-        await StudentService.create(studentData, auth.currentUser.uid, auth.currentUser.email);
+        await StudentService.create(studentData, session.user.id, session.user.email);
         toast.success(`Alumno #${formData.listNumber} creado`, { id: toastId });
       }
 
@@ -125,7 +127,8 @@ export function StudentForm() {
     reader.readAsBinaryString(file);
   };
   const saveExcelData = async () => {
-      if (!auth.currentUser) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
       setLoading(true);
       const toastId = toast.loading("Guardando Excel...");
       try {
@@ -140,7 +143,7 @@ export function StudentForm() {
                 section: bulkConfig.section || row.Seccion || row.Sección || 'A',
                 photoUrl: ''
             };
-            return StudentService.create(data, auth.currentUser.uid, auth.currentUser.email);
+            return StudentService.create(data, session.user.id, session.user.email);
         });
         await Promise.all(promises);
         toast.success("Carga masiva completada", { id: toastId });
@@ -171,27 +174,26 @@ export function StudentForm() {
   const paginatedStudents = filteredStudents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <div style={{ paddingBottom: '80px' }}>
+    <div className="pb-20">
       
-      <div style={{marginBottom: '15px'}}>
-        <Button 
+      <div className="mb-4">
+        <button 
             onClick={() => {setShowExcel(!showExcel); setEditingId(null);}} 
-            variant={showExcel ? 'danger' : 'primary'}
-            style={{background: showExcel ? '#ef4444' : '#10b981', border:'none'}}
+            className={`w-full py-3 rounded-xl border-none font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all ${showExcel ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20' : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-lg shadow-blue-500/20'}`}
         >
-          {showExcel ? <X size={18}/> : <FileSpreadsheet size={18}/>} 
+          {showExcel ? <X size={16}/> : <FileSpreadsheet size={16}/>} 
           {showExcel ? 'Cancelar Carga' : 'Carga Masiva (Excel)'}
-        </Button>
+        </button>
       </div>
 
       {/* MÓDULO EXCEL */}
       {showExcel && (
         <Card title="Carga Masiva desde Excel" icon={FileSpreadsheet}>
-           <div style={{fontSize:'12px', color:'#666', marginBottom:'15px', fontStyle:'italic'}}>
+           <div className="text-xs text-secondary mb-4 italic">
                Configuración opcional para forzar datos. Si se deja vacío, se lee del Excel.
            </div>
            
-           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+           <div className="grid grid-cols-2 gap-2 mb-2">
               <Select label="Nivel (Opcional)" value={bulkConfig.level} onChange={(e)=>setBulkConfig({...bulkConfig, level: e.target.value})}>
                   <option value="">-- Usar del Excel --</option>
                   {LEVELS.map(o=><option key={o}>{o}</option>)}
@@ -202,7 +204,7 @@ export function StudentForm() {
               </Select>
            </div>
 
-           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom: '15px'}}>
+           <div className="grid grid-cols-2 gap-2 mb-4">
               <Select label="Grado (Opcional)" value={bulkConfig.grade} onChange={(e)=>setBulkConfig({...bulkConfig, grade: e.target.value})}>
                   <option value="">-- Usar del Excel --</option>
                   {GRADES.map(o=><option key={o}>{o}</option>)}
@@ -213,22 +215,19 @@ export function StudentForm() {
               </Select>
            </div>
            
-           {/* BOTONES INTERCAMBIADOS AQUI */}
-           <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
-              {/* BOTÓN SUBIR (PRIMERO) */}
-              <label style={{flex:1, background: '#3b82f6', color: 'white', cursor: 'pointer', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px', fontSize:'14px', fontWeight:'600', padding:'10px'}}>
+           <div className="flex gap-2 mb-4">
+              <label className="btn btn-primary flex-1 text-sm">
                   <FileSpreadsheet size={16}/> Subir Archivo
                   <input type="file" accept=".xlsx, .xls" hidden onChange={handleExcelRead} />
               </label>
 
-              {/* BOTÓN PLANTILLA (SEGUNDO) */}
-              <Button variant="secondary" onClick={downloadTemplate} style={{flex:1}}><Download size={16}/> Plantilla</Button>
+              <button className="btn btn-secondary flex-1" onClick={downloadTemplate}><Download size={16}/> Plantilla</button>
            </div>
            
            {excelPreview.length > 0 && (
-               <Button onClick={saveExcelData} disabled={loading} style={{background: '#059669', border:'none'}}>
+               <button onClick={saveExcelData} disabled={loading} className="btn btn-success w-full">
                    <Save size={18}/> Guardar {excelPreview.length} alumnos
-               </Button>
+               </button>
            )}
         </Card>
       )}
@@ -238,69 +237,74 @@ export function StudentForm() {
         <Card 
           title={editingId ? 'Editar Alumno' : 'Nuevo Alumno'} 
           icon={editingId ? Edit2 : UserPlus}
-          actions={editingId && <Button variant="secondary" onClick={()=>{setEditingId(null); setFormData({name:'', studentId:'', level:'Primaria', shift:'Matutina', grade:'4to', section:'A', listNumber:'', birthDate:''});}} style={{width:'auto', padding:'5px 10px'}}>Cancelar</Button>}
+          actions={editingId && <button className="btn btn-secondary" onClick={()=>{setEditingId(null); setFormData({name:'', studentId:'', level:'Primaria', shift:'Matutina', grade:'4to', section:'A', listNumber:'', birthDate:''});}}>Cancelar</button>}
         >
-           <form onSubmit={handleSubmit}>
-              <div style={{display:'flex', gap:'10px'}}>
-                  <div style={{flex:2}}><Input label="Nombre Completo" name="name" placeholder="Ej: Juan Perez" value={formData.name} onChange={handleChange} required /></div>
-                  <div style={{flex:1}}><Input label="Matrícula / ID" name="studentId" placeholder="Opcional" value={formData.studentId} onChange={handleChange} /></div>
+           <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+              <div className="flex gap-2">
+                  <div className="flex-[2]"><Input label="Nombre Completo" name="name" placeholder="Ej: Juan Perez" value={formData.name} onChange={handleChange} required /></div>
+                  <div className="flex-1"><Input label="Matrícula / ID" name="studentId" placeholder="Opcional" value={formData.studentId} onChange={handleChange} /></div>
               </div>
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+              <div className="grid grid-cols-2 gap-2">
                   <Select label="Nivel" name="level" value={formData.level} onChange={handleChange}>{LEVELS.map(o=><option key={o}>{o}</option>)}</Select>
                   <Select label="Tanda" name="shift" value={formData.shift} onChange={handleChange}>{SHIFTS.map(o=><option key={o}>{o}</option>)}</Select>
               </div>
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px'}}>
+              <div className="grid grid-cols-3 gap-2">
                   <Select label="Grado" name="grade" value={formData.grade} onChange={handleChange}>{GRADES.map(o=><option key={o}>{o}</option>)}</Select>
                   <Select label="Sección" name="section" value={formData.section} onChange={handleChange}>{SECTIONS.map(o=><option key={o}>{o}</option>)}</Select>
                   <Input label="# Lista" name="listNumber" type="number" min="1" value={formData.listNumber} onChange={handleChange}/>
               </div>
-              <div style={{display:'flex', gap:'10px', alignItems:'center', marginBottom:'15px'}}>
-                  <div style={{flex:1}}><Input label="Fecha Nacimiento" type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} /></div>
-                  <div style={{flex:1, paddingTop:'15px'}}><input id="photoInput" type="file" accept="image/*" onChange={handleFileChange} style={{fontSize: '12px'}}/></div>
+              <div className="flex gap-2 items-center mb-4">
+                  <div className="flex-1"><Input label="Fecha Nacimiento" type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} /></div>
+                  <div className="flex-1 pt-[1.35rem]"><input id="photoInput" type="file" accept="image/*" onChange={handleFileChange} className="text-xs w-full"/></div>
               </div>
-              <Button type="submit" disabled={loading} variant={editingId ? 'secondary' : 'primary'}>
-                  {loading ? 'Guardando...' : (editingId ? <><Save size={18}/> Actualizar Datos</> : <><UserPlus size={18}/> Registrar Alumno</>)}
-              </Button>
+              <button type="submit" disabled={loading} className={`w-full py-3.5 rounded-xl border-none font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-[0.98] ${editingId ? 'bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-500 hover:to-orange-500 text-white shadow-amber-500/20' : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-blue-500/20'}`}>
+                  {loading ? 'Guardando...' : (editingId ? <><Save size={16}/> Actualizar Datos</> : <><UserPlus size={16}/> Registrar Alumno</>)}
+              </button>
            </form>
         </Card>
       )}
 
       {/* FILTROS */}
-      <div style={{background:'#f8fafc', padding:'15px', borderRadius:'16px', border:'1px solid #e2e8f0', marginBottom:'15px'}}>
-          <div style={{fontSize:'12px', fontWeight:'bold', color:'#64748b', marginBottom:'10px', display:'flex', alignItems:'center', gap:'5px'}}><Filter size={14}/> Filtrar Lista:</div>
-          <div style={{marginBottom:'10px'}}>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl p-4 mb-4 shadow-sm">
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5 uppercase tracking-widest"><Filter size={12}/> Filtrar Lista</div>
+          <div className="mb-3">
               <SchoolFilters filters={viewFilters} onChange={setViewFilters} showAllOption={true} layout="grid" />
           </div>
-          <div style={{position:'relative'}}>
-              <Search size={16} style={{position:'absolute', left:'10px', top:'10px', color:'#9ca3af'}}/>
-              <input placeholder="Buscar por nombre o ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width:'100%', padding:'10px 10px 10px 35px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'14px', boxSizing:'border-box', outline:'none'}}/>
+          <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+              <input placeholder="Buscar por nombre o ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"/>
           </div>
       </div>
 
       {/* LISTA */}
-      <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-         <div style={{fontSize:'12px', color:'#666', textAlign:'right'}}>{filteredStudents.length} alumnos encontrados</div>
-         {filteredStudents.length === 0 ? <p style={{textAlign: 'center', color: '#999', padding:'20px'}}>No hay resultados.</p> : 
+      <div className="flex flex-col gap-2">
+         <div className="text-[11px] text-slate-400 font-medium text-right mb-1">{filteredStudents.length} alumnos encontrados</div>
+         {filteredStudents.length === 0 ? (
+             <div className="text-center py-12 text-slate-400">
+                 <User size={40} className="mx-auto mb-3 opacity-30" />
+                 <p className="text-sm font-medium">No hay resultados.</p>
+             </div>
+         ) : 
              paginatedStudents.map(s => (
-               <div key={s.id} style={{padding:'12px', background:'white', borderRadius:'12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', borderLeft: `4px solid ${s.photoUrl ? '#10b981' : '#cbd5e1'}`}}>
-                  <div style={{display:'flex', gap:'12px', alignItems:'center'}}>
-                     <div style={{position:'relative'}}>
-                         {s.photoUrl ? <img src={s.photoUrl} style={{width:'45px', height:'45px', borderRadius:'50%', objectFit:'cover', border:'1px solid #eee'}}/> : <div style={{width:'45px', height:'45px', borderRadius:'50%', background:'#f1f5f9', display:'grid', placeItems:'center'}}><User size={20} color="#94a3b8"/></div>}
-                         <div style={{position:'absolute', bottom:'-2px', right:'-2px', background:'#2563eb', color:'white', width:'20px', height:'20px', borderRadius:'50%', fontSize:'11px', display:'grid', placeItems:'center', fontWeight:'bold'}}>{s.listNumber}</div>
+               <div key={s.id} className={`p-3 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center shadow-sm border border-slate-200 dark:border-white/10 border-l-4 ${s.photoUrl ? 'border-l-emerald-400' : 'border-l-slate-200 dark:border-l-white/10'}`}>
+                  <div className="flex gap-3 items-center">
+                     <div className="relative shrink-0">
+                         {s.photoUrl ? <img src={s.photoUrl} className="w-11 h-11 rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm"/> : <div className="w-11 h-11 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center"><User size={20} className="text-slate-400"/></div>}
+                         <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white w-5 h-5 rounded-full text-[9px] flex items-center justify-center font-bold shadow">{s.listNumber}</div>
                      </div>
                      <div>
-                        <div style={{fontWeight: '600', color: '#1e293b', fontSize:'15px'}}>{s.name}</div>
-                        <div style={{fontSize: '12px', color: '#64748b', display:'flex', gap:'6px', flexWrap:'wrap', marginTop:'2px'}}>
-                           <span style={{background:'#eff6ff', color:'#2563eb', padding:'2px 6px', borderRadius:'4px', fontWeight:'500'}}>{s.grade} {s.section}</span>
-                           {s.studentId && <span style={{color:'#94a3b8'}}>ID: {s.studentId}</span>}
+                        <div className="font-bold text-slate-800 dark:text-slate-100 text-sm">{s.name}</div>
+                        <div className="text-[11px] text-slate-400 flex gap-1.5 flex-wrap mt-0.5">
+                           <span className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-md font-semibold">{s.grade} {s.section}</span>
+                           {s.studentId && <span className="text-slate-400">ID: {s.studentId}</span>}
                         </div>
-                        {s.birthDate && <div style={{fontSize:'11px', color:'#94a3b8', display:'flex', alignItems:'center', gap:'3px', marginTop:'2px'}}><Calendar size={10}/> {s.birthDate}</div>}
+                        {s.birthDate && <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-1"><Calendar size={9}/> {s.birthDate}</div>}
                      </div>
                   </div>
-                  <div style={{display: 'flex', gap: '8px'}}>
-                     <button onClick={() => navigate('/gallery', { state: { studentId: s.id } })} style={{background: '#eff6ff', border: 'none', borderRadius:'8px', padding:'8px', cursor: 'pointer', color:'#2563eb'}}><Folder size={18}/></button>
-                     <button onClick={() => handleEdit(s)} style={{background: '#fffbeb', border: 'none', borderRadius:'8px', padding:'8px', cursor: 'pointer', color:'#d97706'}}><Edit2 size={18}/></button>
-                     <button onClick={() => handleDelete(s.id)} style={{background: '#fef2f2', border: 'none', borderRadius:'8px', padding:'8px', cursor: 'pointer', color:'#dc2626'}}><Trash2 size={18}/></button>
+                  <div className="flex gap-1.5 shrink-0">
+                     <button onClick={() => navigate('/gallery', { state: { studentId: s.id } })} className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none flex items-center justify-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"><Folder size={14}/></button>
+                     <button onClick={() => handleEdit(s)} className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none flex items-center justify-center cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors"><Edit2 size={14}/></button>
+                     <button onClick={() => handleDelete(s.id)} className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-none flex items-center justify-center cursor-pointer hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors"><Trash2 size={14}/></button>
                   </div>
                </div>
              ))
@@ -308,10 +312,10 @@ export function StudentForm() {
       </div>
       
       {filteredStudents.length > itemsPerPage && (
-          <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '20px'}}>
-              <Button variant="secondary" disabled={currentPage===1} onClick={()=>setCurrentPage(c=>c-1)} style={{width:'auto'}}>Anterior</Button>
-              <span style={{alignSelf:'center', fontSize:'14px', color:'#666'}}>Página {currentPage}</span>
-              <Button variant="secondary" disabled={paginatedStudents.length < itemsPerPage} onClick={()=>setCurrentPage(c=>c+1)} style={{width:'auto'}}>Siguiente</Button>
+          <div className="flex justify-center items-center gap-4 mt-5">
+              <button className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 text-sm font-semibold cursor-pointer disabled:opacity-40 hover:bg-slate-50 transition-colors" disabled={currentPage===1} onClick={()=>setCurrentPage(c=>c-1)}>Anterior</button>
+              <span className="text-xs font-bold text-slate-400">Página {currentPage}</span>
+              <button className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 text-sm font-semibold cursor-pointer disabled:opacity-40 hover:bg-slate-50 transition-colors" disabled={paginatedStudents.length < itemsPerPage} onClick={()=>setCurrentPage(c=>c+1)}>Siguiente</button>
           </div>
       )}
     </div>

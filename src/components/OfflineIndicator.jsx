@@ -29,33 +29,7 @@ export function OfflineIndicator() {
   if (isOnline) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      /* CAMBIO RADICAL: Lo mandamos arriba */
-      top: '60px', 
-      left: '50%',
-      transform: 'translateX(-50%)', /* Centrado horizontal */
-      
-      width: 'auto',
-      minWidth: '200px',
-      
-      backgroundColor: '#ef4444', // Rojo alerta
-      color: 'white',
-      padding: '8px 16px',
-      borderRadius: '20px', /* Cápsula redondeada */
-      boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-      
-      textAlign: 'center',
-      fontSize: '12px',
-      fontWeight: '600',
-      zIndex: 9999,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '8px',
-      pointerEvents: 'none', // <--- TRUCO FINAL: Permite hacer clic "a través" del aviso si tapara algo
-      animation: 'slideDown 0.3s ease-out'
-    }}>
+    <div className="fixed top-[60px] left-1/2 -translate-x-1/2 w-auto min-w-[200px] bg-red-500 text-white py-2 px-4 rounded-full shadow-md text-center text-xs font-bold z-[9999] flex items-center justify-center gap-2 pointer-events-none animate-[slideDown_0.3s_ease-out]">
       <WifiOff size={14} />
       <span>Offline: Guardando localmente</span>
       

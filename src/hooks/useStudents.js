@@ -1,7 +1,8 @@
 // src/hooks/useStudents.js
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
+import { StudentService } from '../services/studentService';
 
 export function useStudents() {
   const [students, setStudents] = useState([]);
@@ -9,44 +10,92 @@ export function useStudents() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        const q = query(
-            collection(db, "students"), 
-            where("teacherId", "==", user.uid)
-        );
+    let subscription = null;
 
-        const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-          try {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const fetchStudents = async (userId) => {
+        try {
+            const { data, error } = await supabase.from('students').select('*').eq('teacher_id', userId);
+            if (error) throw error;
             
-            // Ordenar: Grado -> Sección -> Número lista
-            data.sort((a, b) => {
-                if (a.grade !== b.grade) return a.grade.localeCompare(b.grade);
-                if (a.section !== b.section) return a.section.localeCompare(b.section);
-                return (Number(a.listNumber) || 0) - (Number(b.listNumber) || 0);
+             data.sort((a, b) => {
+              if (a.grade_name !== b.grade_name) return (a.grade_name || '').localeCompare(b.grade_name || '');
+              if (a.section_name !== b.section_name) return (a.section_name || '').localeCompare(b.section_name || '');
+              return (Number(a.list_number) || 0) - (Number(b.list_number) || 0);
             });
-
-            setStudents(data);
+            
+            const mapped = data.map(s => ({
+                id: s.id,
+                name: s.name,
+                studentId: s.student_id,
+                level: s.level_name,
+                shift: s.shift_name,
+                grade: s.grade_name,
+                section: s.section_name,
+                listNumber: s.list_number,
+                birthDate: s.birth_date,
+                photoUrl: s.photo_url
+            }));
+            
+            setStudents(mapped);
             setLoading(false);
-          } catch (err) {
-            console.error("Error procesando alumnos:", err);
-            setError(err);
-          }
-        }, (err) => {
-          console.error("Error Firebase:", err);
-          setError(err);
-          setLoading(false);
-        });
+        } catch (e) {
+            setError(e);
+            setLoading(false);
+        }
+    };
 
-        return () => unsubscribeSnapshot();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+         fetchStudents(session.user.id);
+         
+         subscription = supabase.channel('students_channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'students', filter: `teacher_id=eq.${session.user.id}` }, payload => {
+                fetchStudents(session.user.id);
+            })
+            .subscribe();
+            
       } else {
         setStudents([]);
         setLoading(false);
+        if (subscription) supabase.removeChannel(subscription);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+        authListener?.subscription.unsubscribe();
+        if (subscription) supabase.removeChannel(subscription);
+    };
   }, []);
 
-  return { students, loading, error };
+  const addStudent = async (studentData) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      try {
+          await StudentService.create(studentData, session.user.id, session.user.email);
+          toast.success("Alumno agregado");
+      } catch (e) {
+          toast.error("Error al agregar");
+      }
+  };
+
+  const updateStudent = async (id, data) => {
+     try {
+          await StudentService.update(id, data);
+          toast.success("Alumno actualizado");
+      } catch (e) {
+          toast.error("Error al actualizar");
+      }
+  };
+
+  const deleteStudent = async (id) => {
+      if (!confirm("¿Eliminar alumno? Se perderá su asociación a las evidencias.")) return;
+       try {
+          await StudentService.delete(id);
+          toast.success("Alumno eliminado");
+      } catch (e) {
+          toast.error("Error al eliminar");
+      }
+  };
+
+  return { students, loading, error, addStudent, updateStudent, deleteStudent };
 }
