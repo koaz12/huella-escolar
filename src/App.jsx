@@ -1,7 +1,7 @@
 // src/App.jsx
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Camera, Users, Image as ImageIcon, LogOut, CloudOff, Moon, Sun, Settings as SettingsIcon, ShieldAlert, BarChart2 } from 'lucide-react';
+import { Camera, Users, Image as ImageIcon, LogOut, CloudOff, Moon, Sun, Settings as SettingsIcon, ShieldAlert, BarChart2, House } from 'lucide-react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 // Componentes
@@ -15,6 +15,7 @@ import { StudentProfile } from './pages/StudentProfile';
 import { Onboarding } from './pages/Onboarding';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { StatsPage } from './pages/StatsPage';
+import { Home } from './pages/Home';
 import { useAuth } from './context/AuthContext';
 
 function App() {
@@ -103,7 +104,8 @@ function App() {
           {isOnline && <SyncStatus />}
 
           <Routes>
-            <Route path="/" element={<Navigate to="/capture" replace />} />
+            <Route path="/" element={<Navigate to="/home" replace />} />
+            <Route path="/home" element={<Home />} />
             <Route path="/capture" element={<CaptureForm />} />
             <Route path="/students" element={<StudentForm />} />
             <Route path="/gallery" element={<EvidenceList />} />
@@ -118,6 +120,7 @@ function App() {
       {/* BARRA INFERIOR DE NAVEGACIÓN PREMIUM */}
       <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-2" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="pointer-events-auto flex items-center justify-around bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-b-0 border-slate-200 dark:border-white/10 rounded-t-2xl shadow-[0_-4px_24px_0_rgba(31,38,135,0.07)] dark:shadow-[0_-4px_24px_0_rgba(0,0,0,0.5)] w-full max-w-md p-2 mx-auto gap-1">
+            <NavButton icon={<House size={22} />} label="Inicio" active={location.pathname === '/home'} onClick={() => navigate('/home')} />
             <NavButton icon={<Camera size={22} />} label="Captura" active={location.pathname === '/capture'} onClick={() => navigate('/capture')} />
             <NavButton icon={<ImageIcon size={22} />} label="Galería" active={location.pathname === '/gallery'} onClick={() => navigate('/gallery')} />
             <NavButton icon={<BarChart2 size={22} />} label="Stats" active={location.pathname === '/stats'} onClick={() => navigate('/stats')} />
