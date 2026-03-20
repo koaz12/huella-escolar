@@ -11,7 +11,7 @@ export function Settings() {
     const { students, addStudent, updateStudent, deleteStudent } = useStudents();
     const { availableTags, addTag, deleteTag } = useTags();
 
-    const [profile, setProfile] = useState({ name: '', school: '', currentPeriod: 'P1' });
+    const [profile, setProfile] = useState({ name: '', school: '', currentPeriod: localStorage.getItem('currentPeriod') || 'P1' });
     const [loadingProfile, setLoadingProfile] = useState(true);
     const [editingStudent, setEditingStudent] = useState(null);
     const [newStudent, setNewStudent] = useState({ name: '', grade: '', section: '', listNumber: '' });
@@ -23,7 +23,7 @@ export function Settings() {
             if (session?.user) {
                 const { data, error } = await supabase.from('teachers').select('*').eq('id', session.user.id).single();
                 if (!error && data) {
-                    setProfile({ name: data.full_name || '', school: data.school_id || '', currentPeriod: 'P1' });
+                    setProfile({ name: data.full_name || '', school: data.school_id || '', currentPeriod: localStorage.getItem('currentPeriod') || 'P1' });
                 }
             }
             setLoadingProfile(false);
@@ -103,7 +103,16 @@ export function Settings() {
                     </div>
                     <div>
                         <label className={labelCls}>Periodo Académico Activo</label>
-                        <select value={profile.currentPeriod} onChange={e => setProfile({ ...profile, currentPeriod: e.target.value })} className={inputCls}>
+                        <select
+                            value={profile.currentPeriod}
+                            onChange={e => {
+                                const p = e.target.value;
+                                localStorage.setItem('currentPeriod', p);
+                                setProfile({ ...profile, currentPeriod: p });
+                                toast.success(`Período cambiado a ${p}`);
+                            }}
+                            className={inputCls}
+                        >
                             <option value="P1">Período 1 (P1)</option>
                             <option value="P2">Período 2 (P2)</option>
                             <option value="P3">Período 3 (P3)</option>

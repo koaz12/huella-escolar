@@ -31,8 +31,14 @@ export function useCaptureForm() {
   });
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Periodo Académico
-  const [currentPeriod, setCurrentPeriod] = useState('P1');
+  // Periodo Académico — persisted in localStorage so Settings and CaptureForm share the same value
+  const [currentPeriod, setCurrentPeriodState] = useState(
+    () => localStorage.getItem('currentPeriod') || 'P1'
+  );
+  const setCurrentPeriod = (p) => {
+    localStorage.setItem('currentPeriod', p);
+    setCurrentPeriodState(p);
+  };
 
   // Carga de historial de actividades
   useEffect(() => {

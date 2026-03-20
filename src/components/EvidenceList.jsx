@@ -578,6 +578,15 @@ export function EvidenceList() {
 
                                 <p className="text-[11px] text-slate-400 mb-3">{formatDate(inspectorItem.date)}</p>
 
+                                {/* Meta row: period + grade/section */}
+                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                    {inspectorItem.period && (
+                                        <span className="text-[10px] px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20 font-bold uppercase tracking-wide">
+                                            📅 {inspectorItem.period}
+                                        </span>
+                                    )}
+                                </div>
+
                                 {inspectorItem.tags?.length > 0 && (
                                     <div className="flex flex-wrap gap-1.5 mb-3">
                                         {inspectorItem.tags.map(tag => <span key={tag} className="text-[10px] bg-slate-100 dark:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded-md text-slate-500 dark:text-slate-400 font-medium">#{tag}</span>)}
