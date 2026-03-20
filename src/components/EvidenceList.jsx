@@ -422,17 +422,33 @@ export function EvidenceList() {
             {/* VISTA CARPETAS (Solo en Grid Mode y sin filtros activos) */}
             {!filterActivity && !filterStudent && filterPerformance === 'Todos' && viewMode === 'grid' && (
                 <div className="grid grid-cols-2 gap-2.5">
-                    {Object.keys(folders).map(name => (
-                        <div key={name} onClick={() => setFilterActivity(name)} className="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 p-3.5 flex items-center gap-3 cursor-pointer shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all">
-                            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center shrink-0 group-hover:bg-amber-100 dark:group-hover:bg-amber-500/20 transition-colors">
-                                <Folder size={22} className="text-amber-500 fill-amber-100 dark:fill-amber-500/20" />
+                    {Object.keys(folders).map(name => {
+                        const items = folders[name];
+                        const previews = items.slice(0, 3);
+                        return (
+                            <div key={name} onClick={() => setFilterActivity(name)} className="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden cursor-pointer shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all">
+                                {/* Filmstrip thumbnails */}
+                                <div className="flex h-20 bg-slate-100 dark:bg-slate-800 overflow-hidden gap-0.5">
+                                    {previews.map((ev, i) => (
+                                        <div key={i} className="flex-1 overflow-hidden">
+                                            {ev.fileUrl?.includes('.mp4') || ev.fileType === 'video'
+                                                ? <div className="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700"><Film size={18} className="text-slate-400" /></div>
+                                                : <img src={ev.fileUrl} className="w-full h-full object-cover" />}
+                                        </div>
+                                    ))}
+                                    {previews.length === 0 && <div className="flex-1 flex items-center justify-center"><Folder size={28} className="text-amber-400" /></div>}
+                                </div>
+                                {/* Label */}
+                                <div className="px-3 py-2.5 flex items-center justify-between">
+                                    <div className="overflow-hidden min-w-0">
+                                        <div className="font-bold text-[13px] text-slate-800 dark:text-slate-100 truncate">{name}</div>
+                                        <div className="text-[10px] text-slate-400 font-medium">{items.length} {items.length === 1 ? 'archivo' : 'archivos'}</div>
+                                    </div>
+                                    <ChevronRight size={14} className="text-slate-300 shrink-0" />
+                                </div>
                             </div>
-                            <div className="overflow-hidden flex-1 min-w-0">
-                                <div className="font-bold text-[13px] text-slate-800 dark:text-slate-100 whitespace-nowrap overflow-hidden text-ellipsis">{name}</div>
-                                <div className="text-[10px] text-slate-400 font-medium mt-0.5">{folders[name].length} {folders[name].length === 1 ? 'archivo' : 'archivos'}</div>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {Object.keys(folders).length === 0 && filteredItems.length === 0 && (
                         <div className="col-span-2 text-center py-12 text-slate-400">
                             <Folder size={40} className="mx-auto mb-3 opacity-30" />
@@ -450,13 +466,20 @@ export function EvidenceList() {
                             if (selectionMode) toggleSelection(item.id);
                             else { setInspectorItem(item); setIsEditing(false); }
                         }} className={`aspect-square relative overflow-hidden bg-slate-200 dark:bg-slate-800 cursor-pointer rounded-xl transition-all ${selectionMode && !selectedIds.includes(item.id) ? 'opacity-50 scale-95' : 'opacity-100 hover:scale-95'}`}>
-                            {(item.fileUrl.includes('.mp4') || item.fileType === 'video') && <Film size={14} className="text-white absolute top-1.5 left-1.5 z-[2] drop-shadow-md" />}
-                            {item.isFavorite && <Star size={13} className="text-amber-400 fill-amber-400 absolute top-1.5 right-1.5 z-[2] drop-shadow-md" />}
+                            {/* Media */}
+                            {item.fileUrl?.includes('.mp4') || item.fileType === 'video'
+                                ? <video src={item.fileUrl} className="w-full h-full object-cover" />
+                                : <img src={item.fileUrl} className="w-full h-full object-cover" />}
+                            {/* Bottom gradient overlay with name */}
+                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none rounded-b-xl" />
+                            <div className="absolute bottom-0 left-0 right-0 p-1.5 pointer-events-none">
+                                <div className="text-white text-[9px] font-semibold leading-tight line-clamp-2 drop-shadow">{item.activityName}</div>
+                            </div>
+                            {/* Top badges */}
+                            {(item.fileUrl?.includes('.mp4') || item.fileType === 'video') && <Film size={13} className="text-white absolute top-1.5 left-1.5 z-[2] drop-shadow-md" />}
+                            {item.isFavorite && <Star size={12} className="text-amber-400 fill-amber-400 absolute top-1.5 right-1.5 z-[2] drop-shadow-md" />}
+                            {item.performance && <div className="absolute top-1.5 left-1.5 z-[2]">{getPerformanceIcon(item.performance)}</div>}
                             {selectionMode && selectedIds.includes(item.id) && <div className="absolute inset-0 bg-blue-500/40 z-10 flex items-center justify-center rounded-xl"><CheckCircle className="text-white fill-blue-500" /></div>}
-                            {item.performance && <div className="absolute bottom-1.5 right-1.5 z-[2] bg-black/30 backdrop-blur-sm rounded-full p-0.5">{getPerformanceIcon(item.performance)}</div>}
-                            {item.fileUrl.includes('.mp4') || item.fileType === 'video' ? (
-                                <video src={item.fileUrl} className="w-full h-full object-cover" />
-                            ) : <img src={item.fileUrl} className="w-full h-full object-cover" />}
                         </div>
                     ))}
                     {filteredItems.length === 0 && (

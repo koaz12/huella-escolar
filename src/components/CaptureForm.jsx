@@ -68,7 +68,8 @@ export function CaptureForm() {
         filters, handleFilterChange,
         searchTerm, setSearchTerm,
         saveEvidence,
-        currentPeriod
+        currentPeriod,
+        setCurrentPeriod
     } = useCaptureForm();
 
     const { availableTags, addTag, deleteTag } = useTags();
@@ -171,9 +172,18 @@ export function CaptureForm() {
                             className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer transition-all duration-200 border-none ${captureContext === 'school' ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                             <School size={15} /> Evento
                         </button>
-                        <div className="flex items-center justify-center px-3 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-lg border border-blue-200 dark:border-blue-500/20">
-                            {currentPeriod}
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const periods = ['P1', 'P2', 'P3', 'P4'];
+                                const next = periods[(periods.indexOf(currentPeriod) + 1) % periods.length];
+                                setCurrentPeriod(next);
+                            }}
+                            title="Cambiar período"
+                            className="flex items-center justify-center px-3 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-lg border border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap gap-1"
+                        >
+                            {currentPeriod} ↻
+                        </button>
                     </div>
 
                     {/* Date picker */}

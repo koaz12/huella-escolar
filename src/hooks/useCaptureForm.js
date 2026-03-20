@@ -154,6 +154,7 @@ export function useCaptureForm() {
     filters, handleFilterChange,
     searchTerm, setSearchTerm,
     saveEvidence,
-    currentPeriod
+    currentPeriod,
+    setCurrentPeriod
   };
 }
