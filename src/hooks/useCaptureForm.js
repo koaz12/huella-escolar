@@ -113,8 +113,22 @@ export function useCaptureForm() {
         count++;
         let fileToUpload = file;
         if (file.type.startsWith('image/')) {
-          try { fileToUpload = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }); }
-          catch (error) { console.error(error); }
+          try {
+            // useWebWorker:false — Web Workers fail silently in Vite production builds
+            const compressionPromise = imageCompression(file, {
+              maxSizeMB: 0.8,
+              maxWidthOrHeight: 1280,
+              useWebWorker: false,
+            });
+            // 15s timeout so a failed compression never blocks the upload
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 15000)
+            );
+            fileToUpload = await Promise.race([compressionPromise, timeoutPromise]);
+          } catch (err) {
+            console.warn('Image compression skipped:', err.message);
+            fileToUpload = file; // use original file if compression fails
+          }
         }
 
         const isSchoolMode = captureContext === 'school';
