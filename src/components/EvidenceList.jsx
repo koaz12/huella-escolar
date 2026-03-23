@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import {
     Trash2, Search, X, Folder, ArrowLeft,
     Edit2, Download, User, Star, PieChart, AlertTriangle, CheckCircle,
-    Film, Smile, Meh, Frown, FileDown,
+    Film, Smile, Meh, Frown, FileDown, FolderPlus, Save,
     Calendar as CalendarIcon, Grid, Layers, CheckSquare, Square, ChevronLeft, ChevronRight, Tag
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -14,6 +14,7 @@ import { saveAs } from 'file-saver';
 
 import { useStudents } from '../hooks/useStudents';
 import { useTags } from '../hooks/useTags';
+import { useFolders } from '../hooks/useFolders';
 import { SchoolFilters } from './UI/SchoolFilters';
 import { formatDate } from '../utils/formatters';
 import { EvidenceService } from '../services/evidenceService';
@@ -49,6 +50,10 @@ export function EvidenceList() {
     const [isEditing, setIsEditing] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [pdfExporting, setPdfExporting] = useState(false);
+    const { getFolders, createFolder } = useFolders();
+    const [folders, setFolders] = useState(() => getFolders());
+    const [showFolderModal, setShowFolderModal] = useState(false);
+    const [newFolder, setNewFolder] = useState({ name: '', period: localStorage.getItem('currentPeriod') || 'P1', level: 'Primario', shift: 'Matutina', grade: '', section: '' });
     const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
     const [modalFilters, setModalFilters] = useState({ grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos' });
 
@@ -179,12 +184,12 @@ export function EvidenceList() {
     };
     const filteredItems = getFilteredEvidences();
 
-    const folders = {};
+    const groupedFolders = {};
     if (!filterStudent && filterPerformance === 'Todos' && viewMode === 'grid') {
         filteredItems.forEach(item => {
             const name = item.activityName || "Sin Nombre";
-            if (!folders[name]) folders[name] = [];
-            folders[name].push(item);
+            if (!groupedFolders[name]) groupedFolders[name] = [];
+            groupedFolders[name].push(item);
         });
     }
 
@@ -361,97 +366,110 @@ export function EvidenceList() {
 
             {/* TOOLBAR */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl mb-4 shadow-sm overflow-hidden">
-                {/* PERIOD PILL SELECTOR */}
-            <div className="flex gap-1 p-3 pb-0">
-                {['Todos','P1','P2','P3','P4'].map(p => (
-                    <button
-                        key={p}
-                        onClick={() => setFilterPeriod(p)}
-                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border-none cursor-pointer transition-all ${
-                            filterPeriod === p
-                                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
-                                : 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
-                        }`}
-                    >
-                        {p === 'Todos' ? 'Todos' : p}
-                    </button>
-                ))}
-            </div>
-                <div className="flex gap-2 p-3 border-b border-slate-100 dark:border-white/5">
+
+                {/* ROW 1 — Period pills */}
+                <div className="flex gap-1 p-3 pb-2">
+                    {['Todos','P1','P2','P3','P4'].map(p => (
+                        <button key={p} onClick={() => setFilterPeriod(p)}
+                            className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border-none cursor-pointer transition-all ${
+                                filterPeriod === p ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30' : 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
+                            }`}>{p === 'Todos' ? '📅 Todos' : p}</button>
+                    ))}
+                </div>
+
+                {/* ROW 2 — Search + Alumno */}
+                <div className="flex gap-2 px-3 pb-2">
                     <div className="relative flex-1">
                         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         <input placeholder="Buscar evidencias..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all" />
                     </div>
                     <select value={filterStudent} onChange={e => { setFilterStudent(e.target.value); setFilterActivity(null); }} className={`px-3 py-2 rounded-xl border text-xs font-semibold focus:outline-none cursor-pointer transition-colors shrink-0 ${filterStudent ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-300'}`}>
-                        <option value="" className="text-black">👤 Portafolio...</option>
+                        <option value="" className="text-black">👤 Alumno...</option>
                         {studentsList.map(s => <option key={s.id} value={s.id} className="text-black">{s.name}</option>)}
                     </select>
                     {filterStudent && (
-                        <button
-                            onClick={handleGalleryPdfExport}
-                            disabled={pdfExporting}
-                            title="Exportar portafolio PDF"
-                            className="w-9 h-9 rounded-xl border-none flex items-center justify-center cursor-pointer transition-all bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 shrink-0"
-                        >
+                        <button onClick={handleGalleryPdfExport} disabled={pdfExporting} title="Exportar portafolio PDF"
+                            className="w-9 h-9 rounded-xl border-none flex items-center justify-center cursor-pointer transition-all bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-95 shrink-0">
                             <FileDown size={16} className={pdfExporting ? 'animate-bounce' : ''} />
                         </button>
                     )}
                 </div>
 
-                {/* Filters row */}
-                <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto no-scrollbar">
-                    <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
-                        <option value="Todos">🏷️ Etiq.</option>
-                        {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    {/* Shift chips */}
+                {/* ROW 3 — Nivel filter */}
+                <div className="flex items-center gap-1.5 px-3 pb-2">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0 w-10">Nivel</span>
+                    {[{v:'Todos',l:'Todos'},{v:'Inicial',l:'🌱 Inicial'},{v:'Primario',l:'📖 Primario'},{v:'Secundario',l:'🏫 Secund.'}].map(({v,l}) => (
+                        <button key={v} onClick={() => setFilterLevel(v)}
+                            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                                filterLevel === v ? 'bg-purple-600 text-white border-purple-600' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                            }`}>{l}</button>
+                    ))}
+                </div>
+
+                {/* ROW 4 — Tanda + Desempeño + Etiqueta + Actions */}
+                <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto no-scrollbar border-b border-slate-100 dark:border-white/5">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0 w-10">Tanda</span>
                     {['Todos','Matutina','Vespertina'].map(s => (
                         <button key={s} onClick={() => setFilterShift(s)}
-                            className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
-                                filterShift === s
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
-                            }`}>
-                            {s === 'Todos' ? '🕐 Tanda' : s === 'Matutina' ? '🌅 Mat.' : '🌇 Vesp.'}
-                        </button>
+                            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                                filterShift === s ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                            }`}>{s === 'Todos' ? 'Todos' : s === 'Matutina' ? '🌅 Mat.' : '🌇 Vesp.'}</button>
                     ))}
-                    {/* Nivel chips */}
-                    {[{v:'Todos',l:'🎓 Nivel'},{v:'Inicial',l:'🌱 Inicial'},{v:'Primario',l:'📖 Primario'},{v:'Secundario',l:'🏫 Secund.'}].map(({v,l}) => (
-                        <button key={v} onClick={() => setFilterLevel(v)}
-                            className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
-                                filterLevel === v
-                                    ? 'bg-purple-600 text-white border-purple-600'
-                                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
-                            }`}>
-                            {l}
-                        </button>
-                    ))}
-                    <select value={filterPerformance} onChange={e => setFilterPerformance(e.target.value)} className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
-                        <option value="Todos">🌈 Todo</option>
+                    <div className="w-px h-4 bg-slate-200 dark:bg-white/10 shrink-0" />
+                    <select value={filterPerformance} onChange={e => setFilterPerformance(e.target.value)} className="shrink-0 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
+                        <option value="Todos">🌈 Desempeño</option>
                         <option value="logrado">🟢 Logrado</option>
                         <option value="proceso">🟡 Proceso</option>
                         <option value="apoyo">🔴 Apoyo</option>
                     </select>
-
+                    <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="shrink-0 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
+                        <option value="Todos">🏷️ Etiqueta</option>
+                        {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
                     <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                        {/* VIEW MODE TOGGLE */}
                         <div className="flex bg-slate-100 dark:bg-white/5 rounded-lg p-0.5 border border-slate-200 dark:border-white/10">
                             <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md border-none cursor-pointer transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'bg-transparent text-slate-400 hover:text-slate-600'}`}><Grid size={13} /></button>
                             <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded-md border-none cursor-pointer transition-all ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'bg-transparent text-slate-400 hover:text-slate-600'}`}><CalendarIcon size={13} /></button>
                         </div>
-                        {/* BULK SELECT */}
                         <button onClick={() => { setSelectionMode(!selectionMode); setSelectedIds([]); }} className={`p-1.5 rounded-lg border cursor-pointer transition-all ${selectionMode ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100'}`}>
                             {selectionMode ? <CheckSquare size={13} /> : <Square size={13} />}
                         </button>
-                        {selectionMode && selectedIds.length > 0 && (
-                            <>
-                                <button onClick={handleBulkDelete} className="p-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 rounded-lg cursor-pointer"><Trash2 size={13} /></button>
-                                <button onClick={downloadFolderZip} className="p-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 rounded-lg cursor-pointer"><Download size={13} /></button>
-                            </>
-                        )}
+                        {selectionMode && selectedIds.length > 0 && (<>
+                            <button onClick={handleBulkDelete} className="p-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 rounded-lg cursor-pointer"><Trash2 size={13} /></button>
+                            <button onClick={downloadFolderZip} className="p-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 rounded-lg cursor-pointer"><Download size={13} /></button>
+                        </>)}
                         {!selectionMode && (filterActivity || filterStudent) && <button onClick={downloadFolderZip} disabled={isDownloading} className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 bg-emerald-600 text-white border-none rounded-lg cursor-pointer hover:bg-emerald-700 disabled:opacity-50"><Download size={11} /> ZIP</button>}
                         <button onClick={() => setShowStats(!showStats)} className={`p-1.5 rounded-lg border cursor-pointer transition-all ${showStats ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500'}`}><PieChart size={13} /></button>
                     </div>
+                </div>
+
+                {/* ROW 5 — Carpetas saved + Nueva Carpeta button */}
+                <div className="px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                        <Folder size={12} className="text-slate-400" />
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex-1">Carpetas</span>
+                        <button onClick={() => setShowFolderModal(true)}
+                            className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-1 rounded-lg border-none cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors">
+                            <FolderPlus size={11} /> Nueva
+                        </button>
+                    </div>
+                    {folders.length === 0 ? (
+                        <p className="text-[10px] text-slate-400 italic py-1">Sin carpetas — crea una con "Nueva"</p>
+                    ) : (
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-0.5">
+                            {folders.map(f => (
+                                <button key={f.id} onClick={() => setFilterActivity(f.name)}
+                                    className={`shrink-0 flex flex-col items-start px-3 py-1.5 rounded-xl border text-left cursor-pointer transition-all active:scale-95 ${
+                                        filterActivity === f.name
+                                            ? 'bg-blue-600 border-blue-600 text-white'
+                                            : 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20'
+                                    }`}>
+                                    <span className={`text-[11px] font-extrabold max-w-[110px] truncate ${filterActivity === f.name ? 'text-white' : 'text-blue-700 dark:text-blue-300'}`}>📁 {f.name}</span>
+                                    <span className={`text-[9px] font-medium ${filterActivity === f.name ? 'text-blue-100' : 'text-slate-400'}`}>{f.period} · {f.level || '—'} · {f.grade || 'Todo'}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Breadcrumb */}
@@ -477,8 +495,8 @@ export function EvidenceList() {
             {/* VISTA CARPETAS (Solo en Grid Mode y sin filtros activos) */}
             {!filterActivity && !filterStudent && filterPerformance === 'Todos' && viewMode === 'grid' && (
                 <div className="grid grid-cols-2 gap-2.5">
-                    {Object.keys(folders).map(name => {
-                        const items = folders[name];
+                    {Object.keys(groupedFolders).map(name => {
+                        const items = groupedFolders[name];
                         const previews = items.slice(0, 3);
                         return (
                             <div key={name} onClick={() => setFilterActivity(name)} className="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden cursor-pointer shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all">
@@ -504,7 +522,7 @@ export function EvidenceList() {
                             </div>
                         );
                     })}
-                    {Object.keys(folders).length === 0 && filteredItems.length === 0 && (
+                    {Object.keys(groupedFolders).length === 0 && filteredItems.length === 0 && (
                         <div className="col-span-2 text-center py-12 text-slate-400">
                             <Folder size={40} className="mx-auto mb-3 opacity-30" />
                             <p className="text-sm font-medium">Aún no hay evidencias guardadas.</p>
@@ -737,6 +755,86 @@ export function EvidenceList() {
                     </div>
                 </div>
             )}
+            {/* New Folder Modal */}
+            {showFolderModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[3000] flex items-end">
+                    <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full p-5 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+                        <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto" />
+                        <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 m-0">📁 Nueva Carpeta</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nombre de la carpeta</label>
+                                <input value={newFolder.name} onChange={e => setNewFolder({...newFolder, name: e.target.value})}
+                                    placeholder="Ej. Lengua Española - Ejercicios"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Período</label>
+                                <div className="flex gap-1">
+                                    {['P1','P2','P3','P4'].map(p => (
+                                        <button key={p} type="button" onClick={() => setNewFolder({...newFolder, period: p})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.period === p ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>{p}</button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Tanda</label>
+                                <div className="flex gap-1">
+                                    {['Matutina','Vespertina'].map(s => (
+                                        <button key={s} type="button" onClick={() => setNewFolder({...newFolder, shift: s})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.shift === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                            {s === 'Matutina' ? '🌅' : '🌇'} {s.slice(0,3)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nivel</label>
+                                <div className="flex gap-1">
+                                    {['Inicial','Primario','Secundario'].map(l => (
+                                        <button key={l} type="button" onClick={() => setNewFolder({...newFolder, level: l})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.level === l ? 'bg-purple-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                            {l === 'Inicial' ? '🌱' : l === 'Primario' ? '📖' : '🏫'} {l}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Grado</label>
+                                <input value={newFolder.grade} onChange={e => setNewFolder({...newFolder, grade: e.target.value})}
+                                    placeholder="Ej. 4to"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sección</label>
+                                <input value={newFolder.section} onChange={e => setNewFolder({...newFolder, section: e.target.value})}
+                                    placeholder="Ej. A"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => setShowFolderModal(false)}
+                                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                                Cancelar
+                            </button>
+                            <button type="button" onClick={() => {
+                                try {
+                                    const f = createFolder(newFolder);
+                                    setFolders(getFolders());
+                                    setFilterActivity(f.name);
+                                    setShowFolderModal(false);
+                                    setNewFolder({ name: '', period: localStorage.getItem('currentPeriod') || 'P1', level: 'Primario', shift: 'Matutina', grade: '', section: '' });
+                                    toast.success('📁 Carpeta creada');
+                                } catch(e) { toast.error(e.message); }
+                            }}
+                                className="flex-1 py-3 rounded-xl border-none bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer transition-colors">
+                                Crear Carpeta
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
