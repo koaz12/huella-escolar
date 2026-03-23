@@ -59,6 +59,35 @@ export function useCaptureForm() {
 
   useEffect(() => { localStorage.setItem('captureFilters', JSON.stringify(filters)); }, [filters]);
 
+  // Schedule Brain: auto-fill context based on current day + time
+  useEffect(() => {
+    const raw = localStorage.getItem('weekSchedule');
+    if (!raw) return;
+    try {
+      const schedule = JSON.parse(raw);
+      const dayIndex = new Date().getDay() - 1; // Mon=0 … Fri=4
+      if (dayIndex < 0 || dayIndex > 4) return; // weekend
+      const blocks = schedule[dayIndex] || [];
+      if (blocks.length === 0) return;
+      const now = new Date();
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const toMins = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const current = blocks.find(b => nowMins >= toMins(b.startTime) && nowMins <= toMins(b.endTime));
+      if (!current) return;
+      // Auto-fill only if form is empty (don't overwrite user edits)
+      setActivity(prev => prev || current.subject || '');
+      handleFilterChange('grade', current.grade || 'Todos');
+      handleFilterChange('section', current.section || 'Todos');
+      handleFilterChange('shift', current.shift || 'Todos');
+      toast(`📚 Auto: ${current.subject} · ${current.grade}${current.section ? ' ' + current.section : ''}`, {
+        icon: '🗓️', duration: 3000,
+        style: { fontSize: '0.75rem', fontWeight: '600' }
+      });
+    } catch (e) { /* ignore parse errors */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
   const handleActivityChange = (e) => {
     const val = e.target.value;
     setActivity(val);

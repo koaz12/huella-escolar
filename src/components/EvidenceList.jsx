@@ -34,6 +34,7 @@ export function EvidenceList() {
     const [filterActivity, setFilterActivity] = useState(null);
     const [filterTag, setFilterTag] = useState('Todos');
     const [filterPeriod, setFilterPeriod] = useState('Todos'); 
+    const [filterShift, setFilterShift] = useState('Todos');
     const [filterStudent, setFilterStudent] = useState(initialStudentId);
     const [filterPerformance, setFilterPerformance] = useState('Todos');
     const [searchTerm, setSearchTerm] = useState('');
@@ -149,7 +150,8 @@ export function EvidenceList() {
             const matchesPeriod = filterPeriod === 'Todos' || item.period === filterPeriod;
             const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
             const matchesPerformance = filterPerformance === 'Todos' || item.performance === filterPerformance;
-            return matchesText && matchesActivity && matchesStudent && matchesPerformance && matchesTag && matchesPeriod;
+            const matchesShift = filterShift === 'Todos' || (item.tags && item.tags.some(t => t.toLowerCase().includes(filterShift.toLowerCase())));
+            return matchesText && matchesActivity && matchesStudent && matchesPerformance && matchesTag && matchesPeriod && matchesShift;
         });
     };
     const filteredItems = getFilteredEvidences();
@@ -336,7 +338,22 @@ export function EvidenceList() {
 
             {/* TOOLBAR */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl mb-4 shadow-sm overflow-hidden">
-                {/* Search + Student filter row */}
+                {/* PERIOD PILL SELECTOR */}
+            <div className="flex gap-1 p-3 pb-0">
+                {['Todos','P1','P2','P3','P4'].map(p => (
+                    <button
+                        key={p}
+                        onClick={() => setFilterPeriod(p)}
+                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border-none cursor-pointer transition-all ${
+                            filterPeriod === p
+                                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
+                                : 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10'
+                        }`}
+                    >
+                        {p === 'Todos' ? 'Todos' : p}
+                    </button>
+                ))}
+            </div>
                 <div className="flex gap-2 p-3 border-b border-slate-100 dark:border-white/5">
                     <div className="relative flex-1">
                         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -364,13 +381,17 @@ export function EvidenceList() {
                         <option value="Todos">🏷️ Etiq.</option>
                         {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
-                    <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
-                        <option value="Todos">📅 Período</option>
-                        <option value="P1">Período 1</option>
-                        <option value="P2">Período 2</option>
-                        <option value="P3">Período 3</option>
-                        <option value="P4">Período 4</option>
-                    </select>
+                    {/* Shift chips */}
+                    {['Todos','Matutina','Vespertina'].map(s => (
+                        <button key={s} onClick={() => setFilterShift(s)}
+                            className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                                filterShift === s
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                            }`}>
+                            {s === 'Todos' ? '🕐 Tanda' : s === 'Matutina' ? '🌅 Mañana' : '🌇 Tarde'}
+                        </button>
+                    ))}
                     <select value={filterPerformance} onChange={e => setFilterPerformance(e.target.value)} className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
                         <option value="Todos">🌈 Todo</option>
                         <option value="logrado">🟢 Logrado</option>

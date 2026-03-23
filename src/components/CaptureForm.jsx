@@ -152,6 +152,11 @@ export function CaptureForm() {
                 onCapturePhoto={capturePhoto}
                 onCaptureVideo={{ start: startRecording, stop: stopRecording }}
                 files={files}
+                students={students}
+                selectedStudents={selectedStudents}
+                onToggleStudent={(id) => setSelectedStudents(prev =>
+                    prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+                )}
             />
 
             {/* Hidden native inputs */}

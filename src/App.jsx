@@ -1,7 +1,7 @@
 // src/App.jsx
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Camera, Users, Image as ImageIcon, LogOut, CloudOff, Moon, Sun, Settings as SettingsIcon, ShieldAlert, BarChart2, House } from 'lucide-react';
+import { Camera, Users, Image as ImageIcon, LogOut, CloudOff, Moon, Sun, Settings as SettingsIcon, ShieldAlert, BarChart2, House, CalendarDays } from 'lucide-react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 // Componentes
@@ -15,6 +15,7 @@ import { StudentProfile } from './pages/StudentProfile';
 import { Onboarding } from './pages/Onboarding';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { StatsPage } from './pages/StatsPage';
+import { SchedulePage } from './pages/SchedulePage';
 import { Home } from './pages/Home';
 import { useAuth } from './context/AuthContext';
 
@@ -110,6 +111,7 @@ function App() {
             <Route path="/students" element={<StudentForm />} />
             <Route path="/gallery" element={<EvidenceList />} />
             <Route path="/stats" element={<StatsPage />} />
+            <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/student/:id" element={<StudentProfile />} />
             <Route path="/admin" element={<AdminDashboard />} />
@@ -124,6 +126,7 @@ function App() {
             <NavButton icon={<Camera size={22} />} label="Captura" active={location.pathname === '/capture'} onClick={() => navigate('/capture')} />
             <NavButton icon={<ImageIcon size={22} />} label="Galería" active={location.pathname === '/gallery'} onClick={() => navigate('/gallery')} />
             <NavButton icon={<BarChart2 size={22} />} label="Stats" active={location.pathname === '/stats'} onClick={() => navigate('/stats')} />
+            <NavButton icon={<CalendarDays size={22} />} label="Horario" active={location.pathname === '/schedule'} onClick={() => navigate('/schedule')} />
             <NavButton icon={<Users size={22} />} label="Alumnos" active={location.pathname === '/students'} onClick={() => navigate('/students')} />
             {(userProfile?.role === 'admin' || userProfile?.role === 'principal') && (
               <NavButton icon={<ShieldAlert size={22} />} label="Admin" active={location.pathname === '/admin'} onClick={() => navigate('/admin')} />
