@@ -201,18 +201,27 @@ export function CaptureForm() {
 
                 {/* ── STEP 2: CAPTURA ──────────────────────────────── */}
                 <Section step="2" title={`Archivos${files.length > 0 ? ` · ${files.length}` : ''}`}>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                        <button type="button" onClick={() => startCamera('photo')} className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors cursor-pointer">
-                            <Camera size={22} /><span className="text-[9px] font-bold uppercase">Web</span>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                        {/* PRIMARY: Web camera with student panel */}
+                        <button type="button" onClick={() => startCamera('photo')}
+                            className="col-span-2 flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white border-none shadow-md shadow-blue-500/25 hover:from-blue-700 hover:to-blue-600 active:scale-[0.98] transition-all cursor-pointer">
+                            <Camera size={24} className="shrink-0" />
+                            <div className="text-left">
+                                <div className="text-sm font-extrabold leading-tight">📸 Cámara con Alumnos</div>
+                                <div className="text-[10px] opacity-80 font-medium">Selecciona alumnos mientras capturas</div>
+                            </div>
                         </button>
-                        <button type="button" onClick={openNativePhoto} className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors cursor-pointer">
-                            <ImageIcon size={22} /><span className="text-[9px] font-bold uppercase">Foto</span>
+                        {/* Native fallbacks */}
+                        <button type="button" onClick={openNativePhoto}
+                            className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                            <ImageIcon size={20} />
+                            <span className="text-[9px] font-bold uppercase">📷 Foto Nativa</span>
+                            <span className="text-[8px] text-slate-400 font-medium">sin alumnos</span>
                         </button>
-                        <button type="button" onClick={openNativeVideo} className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-none hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors cursor-pointer">
-                            <Smartphone size={22} /><span className="text-[9px] font-bold uppercase">Video</span>
-                        </button>
-                        <label className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
-                            <FolderPlus size={22} /><span className="text-[9px] font-bold uppercase">Archivo</span>
+                        <label className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                            <FolderPlus size={20} />
+                            <span className="text-[9px] font-bold uppercase">📁 Archivo</span>
+                            <span className="text-[8px] text-slate-400 font-medium">galería</span>
                             <input type="file" multiple accept="image/*,video/*" onChange={handleFilesChange} className="hidden" />
                         </label>
                     </div>
