@@ -119,6 +119,39 @@ export function Settings() {
                             <option value="P4">Período 4 (P4)</option>
                         </select>
                     </div>
+
+                    {/* Teacher type */}
+                    <div>
+                        <label className={labelCls}>Tipo de Docente</label>
+                        <p className="text-[10px] text-slate-400 mb-2">Esto adapta la pantalla de Horario a tu situación</p>
+                        <div className="flex gap-2">
+                            {[
+                                { val: 'single', label: '📚 Única Materia', desc: 'Enseñas la misma asignatura todo el día' },
+                                { val: 'rotativo', label: '🔄 Rotativo', desc: 'Tienes varias asignaturas o grupos distintos' }
+                            ].map(opt => {
+                                const teacherType = localStorage.getItem('teacherType') || 'rotativo';
+                                return (
+                                    <button
+                                        key={opt.val}
+                                        type="button"
+                                        onClick={() => {
+                                            localStorage.setItem('teacherType', opt.val);
+                                            toast.success(`Tipo cambiado a ${opt.label}`);
+                                            setProfile({ ...profile }); // trigger re-render
+                                        }}
+                                        className={`flex-1 p-3 rounded-xl border-2 text-left cursor-pointer transition-all ${
+                                            teacherType === opt.val
+                                                ? 'border-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                                                : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200 mb-0.5">{opt.label}</div>
+                                        <div className="text-[10px] text-slate-400 font-medium leading-tight">{opt.desc}</div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
                     <button onClick={saveProfile} className="w-full py-3.5 rounded-xl border-none bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98]">
                         <Save size={16} /> Guardar Perfil
                     </button>

@@ -69,7 +69,16 @@ export function EvidenceList() {
 
     useEffect(() => {
         let subscription = null;
-        
+        let didLoad = false;
+
+        // Safety timeout — if session check takes > 8s, stop the spinner
+        const timeout = setTimeout(() => {
+            if (!didLoad) {
+                setLoading(false);
+                console.warn('EvidenceList: session check timed out');
+            }
+        }, 8000);
+
         const fetchEvidences = async (userId) => {
             try {
                 const { data, error } = await supabase
@@ -106,6 +115,8 @@ export function EvidenceList() {
             } catch (err) {
                 console.error("Error fetching evidences", err);
             } finally {
+                didLoad = true;
+                clearTimeout(timeout);
                 setLoading(false);
             }
         };
@@ -122,12 +133,19 @@ export function EvidenceList() {
                     })
                     .subscribe();
             } else {
+                didLoad = true;
+                clearTimeout(timeout);
                 setEvidences([]);
                 setLoading(false);
             }
+        }).catch(() => {
+            didLoad = true;
+            clearTimeout(timeout);
+            setLoading(false);
         });
 
         return () => {
+            clearTimeout(timeout);
             if (subscription) supabase.removeChannel(subscription);
         };
     }, []);

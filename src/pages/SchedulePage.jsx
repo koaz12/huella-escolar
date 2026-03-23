@@ -21,8 +21,9 @@ function timeToMins(t) {
 }
 
 export function SchedulePage() {
+    const teacherType = localStorage.getItem('teacherType') || 'rotativo';
     const [selectedDay, setSelectedDay] = useState(() => {
-        const d = new Date().getDay(); // 0=Sun,1=Mon...
+        const d = new Date().getDay();
         return d >= 1 && d <= 5 ? d - 1 : 0;
     });
     const [schedule, setSchedule] = useState(() => {
@@ -33,16 +34,32 @@ export function SchedulePage() {
     const [showModal, setShowModal] = useState(false);
     const [newBlock, setNewBlock] = useState({ ...DEFAULT_BLOCK });
 
+    // For single-subject teachers: one subject that applies all day
+    const [singleSubject, setSingleSubject] = useState(() => {
+        const saved = localStorage.getItem('singleSubjectConfig');
+        return saved ? JSON.parse(saved) : { subject: '', grade: '', section: '', shift: 'Matutina' };
+    });
+
     const save = (next) => {
         setSchedule(next);
         localStorage.setItem('weekSchedule', JSON.stringify(next));
+    };
+
+    const saveSingle = (data) => {
+        setSingleSubject(data);
+        localStorage.setItem('singleSubjectConfig', JSON.stringify(data));
+        // Also populate weekSchedule automatically for the single subject (all slots 7-13 every day)
+        const allDayBlock = { ...data, startTime: '07:00', endTime: '13:00', colorIdx: 0, id: Date.now() };
+        const filled = {};
+        [0,1,2,3,4].forEach(d => { filled[d] = [allDayBlock]; });
+        save(filled);
+        toast.success('Configuración guardada ✅');
     };
 
     const addBlock = () => {
         if (!newBlock.subject || !newBlock.grade) return toast.error('Materia y grado requeridos');
         if (timeToMins(newBlock.startTime) >= timeToMins(newBlock.endTime)) return toast.error('La hora de inicio debe ser menor al fin');
         const updated = { ...schedule, [selectedDay]: [...(schedule[selectedDay] || []), { ...newBlock, id: Date.now() }] };
-        // sort by start time
         updated[selectedDay].sort((a, b) => timeToMins(a.startTime) - timeToMins(b.startTime));
         save(updated);
         setNewBlock({ ...DEFAULT_BLOCK });
@@ -56,6 +73,60 @@ export function SchedulePage() {
     };
 
     const blocks = (schedule[selectedDay] || []);
+
+    // ── SINGLE-SUBJECT MODE ──────────────────────────────────────────────────────
+    if (teacherType === 'single') {
+        return (
+            <div className="pb-28 flex flex-col gap-4">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/10 p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                            <BookOpen size={16} className="text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-sm font-extrabold text-slate-800 dark:text-slate-100 m-0">Mi Materia</h2>
+                            <p className="text-[10px] text-slate-400 m-0">Docente de única asignatura · la app auto-llena al capturar</p>
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Materia / Asignatura</label>
+                            <input value={singleSubject.subject} onChange={e => setSingleSubject({...singleSubject, subject: e.target.value})}
+                                placeholder="Ej. Educación Física" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Grado</label>
+                                <input value={singleSubject.grade} onChange={e => setSingleSubject({...singleSubject, grade: e.target.value})}
+                                    placeholder="Ej. Todos" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sección</label>
+                                <input value={singleSubject.section} onChange={e => setSingleSubject({...singleSubject, section: e.target.value})}
+                                    placeholder="Ej. General" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Tanda</label>
+                            <div className="flex gap-2">
+                                {['Matutina','Vespertina'].map(s => (
+                                    <button key={s} type="button" onClick={() => setSingleSubject({...singleSubject, shift: s})}
+                                        className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${singleSubject.shift === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                        {s === 'Matutina' ? '🌅 Matutina' : '🌇 Vespertina'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <button onClick={() => saveSingle(singleSubject)}
+                            className="w-full py-3 rounded-xl border-none bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer flex items-center justify-center gap-2 transition-colors">
+                            <Save size={15} /> Guardar configuración
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 text-center mt-3">Para cambiar a docente rotativo ve a Ajustes → Tipo de Docente</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="pb-28 flex flex-col gap-4">

@@ -4,7 +4,7 @@ import {
     FolderPlus, Film, X, Camera, Check,
     Calendar, Clock,
     Smile, Meh, Frown, Lock, Unlock, Image as ImageIcon,
-    GraduationCap, School, Smartphone, ChevronDown, ChevronUp
+    GraduationCap, School, Smartphone, ChevronDown, ChevronUp, Video
 } from 'lucide-react';
 
 import { useCamera } from '../hooks/useCamera';
@@ -201,10 +201,10 @@ export function CaptureForm() {
 
                 {/* ── STEP 2: CAPTURA ──────────────────────────────── */}
                 <Section step="2" title={`Archivos${files.length > 0 ? ` · ${files.length}` : ''}`}>
-                    <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="grid grid-cols-3 gap-2 mb-3">
                         {/* PRIMARY: Web camera with student panel */}
                         <button type="button" onClick={() => startCamera('photo')}
-                            className="col-span-2 flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white border-none shadow-md shadow-blue-500/25 hover:from-blue-700 hover:to-blue-600 active:scale-[0.98] transition-all cursor-pointer">
+                            className="col-span-3 flex items-center gap-3 p-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white border-none shadow-md shadow-blue-500/25 hover:from-blue-700 hover:to-blue-600 active:scale-[0.98] transition-all cursor-pointer">
                             <Camera size={24} className="shrink-0" />
                             <div className="text-left">
                                 <div className="text-sm font-extrabold leading-tight">📸 Cámara con Alumnos</div>
@@ -215,8 +215,14 @@ export function CaptureForm() {
                         <button type="button" onClick={openNativePhoto}
                             className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
                             <ImageIcon size={20} />
-                            <span className="text-[9px] font-bold uppercase">📷 Foto Nativa</span>
-                            <span className="text-[8px] text-slate-400 font-medium">sin alumnos</span>
+                            <span className="text-[9px] font-bold uppercase">📷 Foto</span>
+                            <span className="text-[8px] text-slate-400 font-medium">nativa</span>
+                        </button>
+                        <button type="button" onClick={openNativeVideo}
+                            className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                            <Video size={20} />
+                            <span className="text-[9px] font-bold uppercase">🎥 Video</span>
+                            <span className="text-[8px] text-slate-400 font-medium">nativo</span>
                         </button>
                         <label className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer">
                             <FolderPlus size={20} />
