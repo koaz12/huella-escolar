@@ -11,6 +11,7 @@ import { useCamera } from '../hooks/useCamera';
 import { useStudents } from '../hooks/useStudents';
 import { useCaptureForm } from '../hooks/useCaptureForm';
 import { useTags } from '../hooks/useTags';
+import { useFolders } from '../hooks/useFolders';
 
 import { CameraOverlay } from './CameraOverlay';
 import { StudentSelector } from './StudentSelector';
@@ -73,6 +74,10 @@ export function CaptureForm() {
     } = useCaptureForm();
 
     const { availableTags, addTag, deleteTag } = useTags();
+    const { getFolders, createFolder, deleteFolder } = useFolders();
+    const [folders, setFolders] = useState(() => getFolders());
+    const [showFolderModal, setShowFolderModal] = useState(false);
+    const [newFolder, setNewFolder] = useState({ name: '', period: localStorage.getItem('currentPeriod') || 'P1', level: 'Primario', shift: 'Matutina', grade: '', section: '' });
     const [newTagInput, setNewTagInput] = useState('');
     const [isAddingTag, setIsAddingTag] = useState(false);
 
@@ -167,6 +172,34 @@ export function CaptureForm() {
 
                 {/* ── STEP 1: CONTEXTO + FECHA ─────────────────────── */}
                 <Section step="1" title="Contexto">
+                    {/* Folder picker */}
+                    <div className="mb-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">📁 Carpeta</span>
+                            <button type="button" onClick={() => setShowFolderModal(true)}
+                                className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-1 rounded-lg border-none cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors">+ Nueva</button>
+                        </div>
+                        {folders.length === 0 ? (
+                            <p className="text-[10px] text-slate-400 italic text-center py-2">Sin carpetas — crea una con "+ Nueva"</p>
+                        ) : (
+                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                {folders.map(f => (
+                                    <button key={f.id} type="button" onClick={() => {
+                                        setActivity(f.name);
+                                        if (f.period) setCurrentPeriod(f.period);
+                                        if (f.grade) handleFilterChange('grade', f.grade);
+                                        if (f.section) handleFilterChange('section', f.section);
+                                        if (f.shift) handleFilterChange('shift', f.shift);
+                                    }}
+                                        className="shrink-0 flex flex-col items-start px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-left cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-all active:scale-95">
+                                        <span className="text-[11px] font-extrabold text-blue-700 dark:text-blue-300 max-w-[100px] truncate">{f.name}</span>
+                                        <span className="text-[9px] text-slate-400 font-medium">{f.period} · {f.level || '-'} · {f.grade || 'Todos'}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Context tabs */}
                     <div className="flex gap-1.5 mb-4 p-1 bg-slate-100 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
                         <button type="button" onClick={() => setCaptureContext('class')}
@@ -346,6 +379,100 @@ export function CaptureForm() {
                 <div className="fixed inset-0 bg-black/90 z-[10000] flex items-center justify-center p-5">
                     <button onClick={() => setPreviewFile(null)} className="absolute top-5 right-5 bg-white/20 text-white border-none p-2.5 rounded-full cursor-pointer hover:bg-white/30 transition-colors"><X /></button>
                     {previewFile.type.startsWith('video/') ? <video src={URL.createObjectURL(previewFile)} controls className="max-w-full max-h-[80vh] rounded-lg" /> : <img src={URL.createObjectURL(previewFile)} className="max-w-full max-h-[80vh] object-contain rounded-lg" />}
+                </div>
+            )}
+
+            {/* New Folder Modal */}
+            {showFolderModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[3000] flex items-end">
+                    <div className="bg-white dark:bg-slate-900 rounded-t-3xl w-full p-5 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+                        <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto" />
+                        <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 m-0">📁 Nueva Carpeta</h3>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nombre de la carpeta</label>
+                                <input value={newFolder.name} onChange={e => setNewFolder({...newFolder, name: e.target.value})}
+                                    placeholder="Ej. Lengua Española - Ejercicios"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Período</label>
+                                <div className="flex gap-1">
+                                    {['P1','P2','P3','P4'].map(p => (
+                                        <button key={p} type="button" onClick={() => setNewFolder({...newFolder, period: p})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.period === p ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Tanda</label>
+                                <div className="flex gap-1">
+                                    {['Matutina','Vespertina'].map(s => (
+                                        <button key={s} type="button" onClick={() => setNewFolder({...newFolder, shift: s})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.shift === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                            {s === 'Matutina' ? '🌅' : '🌇'} {s.slice(0,3)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nivel</label>
+                                <div className="flex gap-1">
+                                    {['Inicial','Primario','Secundario'].map(l => (
+                                        <button key={l} type="button" onClick={() => setNewFolder({...newFolder, level: l})}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border-none cursor-pointer transition-all ${newFolder.level === l ? 'bg-purple-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                            {l === 'Inicial' ? '🌱' : l === 'Primario' ? '📖' : '🏫'} {l}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Grado</label>
+                                <input value={newFolder.grade} onChange={e => setNewFolder({...newFolder, grade: e.target.value})}
+                                    placeholder="Ej. 4to"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sección</label>
+                                <input value={newFolder.section} onChange={e => setNewFolder({...newFolder, section: e.target.value})}
+                                    placeholder="Ej. A"
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => setShowFolderModal(false)}
+                                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                                Cancelar
+                            </button>
+                            <button type="button" onClick={() => {
+                                try {
+                                    const f = createFolder(newFolder);
+                                    const updated = getFolders();
+                                    setFolders(updated);
+                                    // Auto-select this folder
+                                    setActivity(f.name);
+                                    if (f.period) setCurrentPeriod(f.period);
+                                    if (f.grade) handleFilterChange('grade', f.grade);
+                                    if (f.section) handleFilterChange('section', f.section);
+                                    if (f.shift) handleFilterChange('shift', f.shift);
+                                    setShowFolderModal(false);
+                                    setNewFolder({ name: '', period: localStorage.getItem('currentPeriod') || 'P1', level: 'Primario', shift: 'Matutina', grade: '', section: '' });
+                                    toast.success('📁 Carpeta creada y seleccionada');
+                                } catch(e) { toast.error(e.message); }
+                            }}
+                                className="flex-1 py-3 rounded-xl border-none bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer transition-colors">
+                                Crear Carpeta
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

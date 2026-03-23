@@ -35,6 +35,7 @@ export function EvidenceList() {
     const [filterTag, setFilterTag] = useState('Todos');
     const [filterPeriod, setFilterPeriod] = useState('Todos'); 
     const [filterShift, setFilterShift] = useState('Todos');
+    const [filterLevel, setFilterLevel] = useState('Todos');
     const [filterStudent, setFilterStudent] = useState(initialStudentId);
     const [filterPerformance, setFilterPerformance] = useState('Todos');
     const [searchTerm, setSearchTerm] = useState('');
@@ -101,6 +102,9 @@ export function EvidenceList() {
                     captureDate: doc.capture_date,
                     performance: doc.performance,
                     period: doc.period,
+                    level: doc.level_tag,
+                    grade: doc.grade_tag,
+                    section: doc.section_tag,
                     tags: doc.tags || [],
                     studentIds: (doc.evidence_students || []).map(m => m.student_id)
                 }));
@@ -169,7 +173,8 @@ export function EvidenceList() {
             const matchesStudent = filterStudent ? (item.studentIds && item.studentIds.includes(filterStudent)) : true;
             const matchesPerformance = filterPerformance === 'Todos' || item.performance === filterPerformance;
             const matchesShift = filterShift === 'Todos' || (item.tags && item.tags.some(t => t.toLowerCase().includes(filterShift.toLowerCase())));
-            return matchesText && matchesActivity && matchesStudent && matchesPerformance && matchesTag && matchesPeriod && matchesShift;
+            const matchesLevel = filterLevel === 'Todos' || (item.tags && item.tags.some(t => t.toLowerCase().includes(filterLevel.toLowerCase()))) || (item.level && item.level === filterLevel);
+            return matchesText && matchesActivity && matchesStudent && matchesPerformance && matchesTag && matchesPeriod && matchesShift && matchesLevel;
         });
     };
     const filteredItems = getFilteredEvidences();
@@ -407,7 +412,18 @@ export function EvidenceList() {
                                     ? 'bg-blue-600 text-white border-blue-600'
                                     : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
                             }`}>
-                            {s === 'Todos' ? '🕐 Tanda' : s === 'Matutina' ? '🌅 Mañana' : '🌇 Tarde'}
+                            {s === 'Todos' ? '🕐 Tanda' : s === 'Matutina' ? '🌅 Mat.' : '🌇 Vesp.'}
+                        </button>
+                    ))}
+                    {/* Nivel chips */}
+                    {[{v:'Todos',l:'🎓 Nivel'},{v:'Inicial',l:'🌱 Inicial'},{v:'Primario',l:'📖 Primario'},{v:'Secundario',l:'🏫 Secund.'}].map(({v,l}) => (
+                        <button key={v} onClick={() => setFilterLevel(v)}
+                            className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                                filterLevel === v
+                                    ? 'bg-purple-600 text-white border-purple-600'
+                                    : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10'
+                            }`}>
+                            {l}
                         </button>
                     ))}
                     <select value={filterPerformance} onChange={e => setFilterPerformance(e.target.value)} className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
