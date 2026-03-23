@@ -32,8 +32,19 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         runtimeCaching: [
+          {
+            // App shell: always try network first so updates are immediate
+            urlPattern: /^https:\/\/huella-escolar.*\.vercel\.app\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'app-shell',
+              networkTimeoutSeconds: 5,
+            }
+          },
           {
             urlPattern: /^https:\/\/zanjpvfqfwqshgbvmtmp\.supabase\.co\/storage\/.*/i,
             handler: 'CacheFirst',

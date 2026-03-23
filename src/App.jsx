@@ -141,8 +141,8 @@ function App() {
 function NavButton({ icon, label, active, onClick }) {
   return (
     <button 
-      onClick={onClick} 
-      className={`relative flex-1 flex flex-col items-center justify-center py-2.5 border-none bg-transparent cursor-pointer transition-all duration-300 rounded-xl overflow-hidden group ${active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+      onClick={active ? undefined : onClick}
+      className={`relative flex-1 flex flex-col items-center justify-center py-2.5 border-none bg-transparent transition-all duration-300 rounded-xl overflow-hidden group ${active ? 'text-blue-600 dark:text-blue-400 cursor-default' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 cursor-pointer'}`}
     >
       {active && <div className="absolute inset-0 bg-blue-50 dark:bg-blue-500/10 rounded-xl" />}
       <div className="relative z-10 transition-transform duration-300 group-active:scale-95">
