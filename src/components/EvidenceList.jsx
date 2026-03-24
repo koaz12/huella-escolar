@@ -50,10 +50,13 @@ export function EvidenceList() {
     const [isEditing, setIsEditing] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [pdfExporting, setPdfExporting] = useState(false);
-    const { getFolders, createFolder } = useFolders();
+    const { getFolders, createFolder, updateFolder, deleteFolder } = useFolders();
     const [folders, setFolders] = useState(() => getFolders());
     const [showFolderModal, setShowFolderModal] = useState(false);
     const [newFolder, setNewFolder] = useState({ name: '', period: localStorage.getItem('currentPeriod') || 'P1', level: 'Primario', shift: 'Matutina', grade: '', section: '' });
+    // folderMenu: { folder } when a folder's ⋯ is tapped — shows edit/delete sheet
+    const [folderMenu, setFolderMenu] = useState(null);
+    const [editingFolder, setEditingFolder] = useState(null); // folder being edited
     const [editData, setEditData] = useState({ activityName: '', comment: '', studentIds: [], performance: '' });
     const [modalFilters, setModalFilters] = useState({ grade: 'Todos', section: 'Todos', level: 'Todos', shift: 'Todos' });
 
@@ -362,7 +365,7 @@ export function EvidenceList() {
     );
 
     return (
-        <div className="pb-5">
+        <>
 
             {/* TOOLBAR */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl mb-4 shadow-sm overflow-hidden">
@@ -395,8 +398,8 @@ export function EvidenceList() {
                     )}
                 </div>
 
-                {/* ROW 3 — Nivel filter */}
-                <div className="flex items-center gap-1.5 px-3 pb-2">
+                {/* ROW 3 — Nivel filter (scrollable) */}
+                <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto no-scrollbar">
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0 w-10">Nivel</span>
                     {[{v:'Todos',l:'Todos'},{v:'Inicial',l:'🌱 Inicial'},{v:'Primario',l:'📖 Primario'},{v:'Secundario',l:'🏫 Secund.'}].map(({v,l}) => (
                         <button key={v} onClick={() => setFilterLevel(v)}
@@ -458,15 +461,27 @@ export function EvidenceList() {
                     ) : (
                         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-0.5">
                             {folders.map(f => (
-                                <button key={f.id} onClick={() => setFilterActivity(f.name)}
-                                    className={`shrink-0 flex flex-col items-start px-3 py-1.5 rounded-xl border text-left cursor-pointer transition-all active:scale-95 ${
-                                        filterActivity === f.name
-                                            ? 'bg-blue-600 border-blue-600 text-white'
-                                            : 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20'
-                                    }`}>
-                                    <span className={`text-[11px] font-extrabold max-w-[110px] truncate ${filterActivity === f.name ? 'text-white' : 'text-blue-700 dark:text-blue-300'}`}>📁 {f.name}</span>
-                                    <span className={`text-[9px] font-medium ${filterActivity === f.name ? 'text-blue-100' : 'text-slate-400'}`}>{f.period} · {f.level || '—'} · {f.grade || 'Todo'}</span>
-                                </button>
+                                <div key={f.id} className="shrink-0 flex items-stretch">
+                                    {/* Main chip — tap to filter */}
+                                    <button onClick={() => setFilterActivity(filterActivity === f.name ? null : f.name)}
+                                        className={`flex flex-col items-start px-3 py-1.5 rounded-l-xl border-y border-l text-left cursor-pointer transition-all active:scale-95 ${
+                                            filterActivity === f.name
+                                                ? 'bg-blue-600 border-blue-600 text-white'
+                                                : 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/20'
+                                        }`}>
+                                        <span className={`text-[11px] font-extrabold max-w-[110px] truncate ${filterActivity === f.name ? 'text-white' : 'text-blue-700 dark:text-blue-300'}`}>📁 {f.name}</span>
+                                        <span className={`text-[9px] font-medium ${filterActivity === f.name ? 'text-blue-100' : 'text-slate-400'}`}>{f.period} · {f.level || '—'} · {f.grade || 'Todo'}</span>
+                                    </button>
+                                    {/* ⋯ context button */}
+                                    <button onClick={e => { e.stopPropagation(); setFolderMenu(f); setEditingFolder({...f}); }}
+                                        className={`px-1.5 rounded-r-xl border-y border-r border-l-0 flex items-center justify-center cursor-pointer transition-all ${
+                                            filterActivity === f.name
+                                                ? 'bg-blue-700 border-blue-600 text-blue-100 hover:bg-blue-800'
+                                                : 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20'
+                                        }`}>
+                                        <span className="text-[14px] leading-none">⋯</span>
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -835,6 +850,105 @@ export function EvidenceList() {
                 </div>
             )}
         </div>
+
+        {/* FOLDER CONTEXT SHEET — edit / delete */}
+            {folderMenu && (
+                <div className="fixed inset-0 z-[3001] flex items-end" onClick={() => { setFolderMenu(null); setEditingFolder(null); }}>
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                    <div className="relative w-full bg-white dark:bg-slate-900 rounded-t-3xl shadow-2xl p-5 pb-10 flex flex-col gap-3"
+                        style={{ animation: 'slideUp 0.2s ease-out' }}
+                        onClick={e => e.stopPropagation()}>
+                        <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto" />
+                        <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 m-0">✏️ Editar Carpeta</h3>
+
+                        {editingFolder && (<>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="col-span-2">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nombre</label>
+                                    <input value={editingFolder.name} onChange={e => setEditingFolder({...editingFolder, name: e.target.value})}
+                                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Período</label>
+                                    <div className="flex gap-1">
+                                        {['P1','P2','P3','P4'].map(p => (
+                                            <button key={p} type="button" onClick={() => setEditingFolder({...editingFolder, period: p})}
+                                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-none cursor-pointer transition-all ${editingFolder.period === p ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>{p}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Tanda</label>
+                                    <div className="flex gap-1">
+                                        {['Matutina','Vespertina'].map(s => (
+                                            <button key={s} type="button" onClick={() => setEditingFolder({...editingFolder, shift: s})}
+                                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-none cursor-pointer transition-all ${editingFolder.shift === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                                {s === 'Matutina' ? '🌅' : '🌇'} {s.slice(0,3)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Nivel</label>
+                                    <div className="flex gap-1">
+                                        {['Inicial','Primario','Secundario'].map(l => (
+                                            <button key={l} type="button" onClick={() => setEditingFolder({...editingFolder, level: l})}
+                                                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border-none cursor-pointer transition-all ${editingFolder.level === l ? 'bg-purple-600 text-white' : 'bg-slate-100 dark:bg-white/5 text-slate-500'}`}>
+                                                {l === 'Inicial' ? '🌱' : l === 'Primario' ? '📖' : '🏫'} {l}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Grado</label>
+                                    <input value={editingFolder.grade} onChange={e => setEditingFolder({...editingFolder, grade: e.target.value})} placeholder="Ej. 4to"
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sección</label>
+                                    <input value={editingFolder.section} onChange={e => setEditingFolder({...editingFolder, section: e.target.value})} placeholder="Ej. A"
+                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-1">
+                                {/* Delete */}
+                                <button type="button" onClick={() => {
+                                    if (!confirm(`¿Eliminar la carpeta "${folderMenu.name}"? Las evidencias no se borran.`)) return;
+                                    deleteFolder(folderMenu.id);
+                                    if (filterActivity === folderMenu.name) setFilterActivity(null);
+                                    setFolders(getFolders());
+                                    setFolderMenu(null); setEditingFolder(null);
+                                    toast.success('🗑️ Carpeta eliminada');
+                                }} className="px-4 py-3 rounded-xl border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold text-sm cursor-pointer hover:bg-rose-100 transition-colors">
+                                    Eliminar
+                                </button>
+                                {/* Cancel */}
+                                <button type="button" onClick={() => { setFolderMenu(null); setEditingFolder(null); }}
+                                    className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer">
+                                    Cancelar
+                                </button>
+                                {/* Save */}
+                                <button type="button" onClick={() => {
+                                    try {
+                                        updateFolder(folderMenu.id, editingFolder);
+                                        // If currently filtered by old name, update breadcrumb
+                                        if (filterActivity === folderMenu.name && editingFolder.name !== folderMenu.name) {
+                                            setFilterActivity(editingFolder.name);
+                                        }
+                                        setFolders(getFolders());
+                                        setFolderMenu(null); setEditingFolder(null);
+                                        toast.success('✅ Carpeta actualizada');
+                                    } catch(e) { toast.error(e.message); }
+                                }} className="flex-1 py-3 rounded-xl border-none bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer transition-colors">
+                                    Guardar
+                                </button>
+                            </div>
+                        </>)}
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
 
