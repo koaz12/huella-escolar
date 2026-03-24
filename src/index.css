@@ -369,3 +369,8 @@ html, body {
 }
 .animate-fade-in { animation: fadeIn var(--transition-normal); }
 .animate-fade-in-up { animation: fadeInUp var(--transition-normal); }
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
